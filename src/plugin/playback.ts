@@ -18,7 +18,14 @@ import { requestJson } from "./http";
 import { clearPlaybackHandoffs, registerPlaybackHandoff, takePlaybackHandoff } from "./handoffs";
 import { requestAutoplayNextEpisode, resetPlaylistAfterReplace, shouldRequestAutoplay } from "./autoplay";
 import { clearSegmentState, startSegmentPolling } from "./segments";
-import { getAuthState, getCurrentPlayback, PlaybackState, setCurrentPlayback } from "./state";
+import {
+    getAuthState,
+    getCurrentPlayback,
+    PlaybackState,
+    startCurrentPlayback,
+    stopCurrentPlayback,
+    updateCurrentPlaybackPosition
+} from "./state";
 import {
     formatError,
     isHttpsUrl,
@@ -30,9 +37,7 @@ import {
 const { console, core, event, mpv } = iina;
 
 let pendingWindowTitle: string | null = null;
-let isReplacingPlayback = false;
 let shouldResetPlaylistOnNextLoad = false;
-let lastKnownPositionTicks = 0;
 let playbackTickTimer: ReturnType<typeof setInterval> | null = null;
 let playbackTickCount = 0;
 
@@ -60,7 +65,7 @@ export function handlePlayItem(
     pendingWindowTitle = data.title ? sanitizeMediaTitle(String(data.title)) : null;
     logDebug("Jellyfin: Playing URL:", redactUrlForLog(url, 80));
 
-    isReplacingPlayback = true;
+    stopActivePlayback("replacement requested");
     shouldResetPlaylistOnNextLoad = true;
     if (data.title) {
         const safeTitle = sanitizeMediaTitle(String(data.title));
@@ -85,8 +90,6 @@ export function initializePlaybackHandlers(options: PlaybackHandlersOptions): vo
         if (!url) {
             return;
         }
-
-        isReplacingPlayback = false;
 
         if (url.includes("Jellyfin.png")) {
             logDebug("Jellyfin: Splash loaded, showing sidebar");
@@ -120,13 +123,13 @@ export function initializePlaybackHandlers(options: PlaybackHandlersOptions): vo
         if (!playback) {
             return;
         }
-        if (isReplacingPlayback || playback.autoplayQueued) {
-            return;
-        }
 
         logDebug("Jellyfin: Playback ended");
-        void reportPlaybackStopped();
-        cleanupPlaybackState();
+        const autoplayQueued = playback.autoplayQueued;
+        stopActivePlayback("end of playback");
+        if (autoplayQueued) {
+            return;
+        }
         handleNoNextEpisode("end of playback", options);
     });
 
@@ -138,13 +141,7 @@ export function initializePlaybackHandlers(options: PlaybackHandlersOptions): vo
     });
 
     const handleShutdown = (reason: string) => {
-        const playback = getCurrentPlayback();
-        if (!playback) {
-            return;
-        }
-        logDebug(`Jellyfin: Shutdown detected (${reason}), reporting stop`);
-        void reportPlaybackStopped();
-        cleanupPlaybackState();
+        clearPlaybackState(reason);
     };
 
     event.on("iina.window-will-close", () => {
@@ -173,12 +170,11 @@ function buildPlaybackState(handoff: PlaybackHandoff): PlaybackState {
 
 function startPlaybackSession(playback: PlaybackState, options: PlaybackHandlersOptions): void {
     logDebug("Jellyfin: Detected Jellyfin stream, starting playback reporting");
+    stopActivePlayback("new Jellyfin file loaded");
     clearSegmentState();
-    isReplacingPlayback = false;
 
-    setCurrentPlayback(playback);
+    startCurrentPlayback(playback);
 
-    lastKnownPositionTicks = 0;
     playbackTickCount = 0;
     startPlaybackTick(options);
 
@@ -220,21 +216,10 @@ function getPositionTicks(): number {
 }
 
 function updateLastKnownPosition(): void {
-    const playback = getCurrentPlayback();
-    if (!playback) {
-        return;
-    }
-    const ticks = getPositionTicks();
-    if (ticks > 0) {
-        lastKnownPositionTicks = ticks;
-    }
+    updateCurrentPlaybackPosition(getPositionTicks());
 }
 
-function resolveHttpContext() {
-    const playback = getCurrentPlayback();
-    if (!playback) {
-        return null;
-    }
+function resolveHttpContext(playback: PlaybackState) {
     const authState = getAuthState();
     const serverUrl = playback.serverUrl || authState?.serverUrl || "";
     const accessToken = playback.accessToken || authState?.accessToken || "";
@@ -251,8 +236,11 @@ function resolveHttpContext() {
 
 async function reportPlaybackStart(): Promise<void> {
     const playback = getCurrentPlayback();
-    const httpContext = resolveHttpContext();
-    if (!playback || !httpContext) {
+    if (!playback) {
+        return;
+    }
+    const httpContext = resolveHttpContext(playback);
+    if (!httpContext) {
         return;
     }
     logDebug("Jellyfin: Reporting playback start");
@@ -282,8 +270,11 @@ async function reportPlaybackStart(): Promise<void> {
 
 async function reportPlaybackProgress(isPaused: boolean): Promise<void> {
     const playback = getCurrentPlayback();
-    const httpContext = resolveHttpContext();
-    if (!playback || !httpContext) {
+    if (!playback) {
+        return;
+    }
+    const httpContext = resolveHttpContext(playback);
+    if (!httpContext) {
         return;
     }
 
@@ -308,22 +299,19 @@ async function reportPlaybackProgress(isPaused: boolean): Promise<void> {
     }
 }
 
-async function reportPlaybackStopped(): Promise<void> {
-    const playback = getCurrentPlayback();
-    const httpContext = resolveHttpContext();
-    if (!playback || !httpContext) {
+async function reportPlaybackStopped(playback: PlaybackState, positionTicks: number): Promise<void> {
+    const httpContext = resolveHttpContext(playback);
+    if (!httpContext) {
         return;
     }
-    const positionTicks = getPositionTicks();
-    const resolvedTicks = positionTicks || lastKnownPositionTicks || 0;
-    logDebug("Jellyfin: Reporting playback stopped at position:", resolvedTicks / TICKS_PER_SECOND);
+    logDebug("Jellyfin: Reporting playback stopped at position:", positionTicks / TICKS_PER_SECOND);
 
     try {
         const body: JellyfinPlaybackStopInfo = {
             ItemId: playback.itemId,
             MediaSourceId: playback.mediaSourceId,
             PlaySessionId: playback.playSessionId,
-            PositionTicks: resolvedTicks
+            PositionTicks: positionTicks
         };
         await requestJson(httpContext, {
             method: "POST",
@@ -342,10 +330,6 @@ function startPlaybackTick(options: PlaybackHandlersOptions): void {
         if (!playback) {
             return;
         }
-        if (isReplacingPlayback) {
-            return;
-        }
-
         updateLastKnownPosition();
         playbackTickCount += 1;
 
@@ -377,8 +361,7 @@ function startPlaybackTick(options: PlaybackHandlersOptions): void {
         }
 
         logDebug("Jellyfin: Playback reached EOF (tick)");
-        void reportPlaybackStopped();
-        cleanupPlaybackState();
+        stopActivePlayback("EOF tick");
         handleNoNextEpisode("eof tick", options);
     }, PLAYBACK_TICK_INTERVAL_MS);
 }
@@ -390,12 +373,24 @@ function stopPlaybackTick(): void {
     }
 }
 
-function cleanupPlaybackState(): void {
+function resetPlaybackRuntime(): void {
     stopPlaybackTick();
     clearSegmentState();
-    setCurrentPlayback(null);
-    lastKnownPositionTicks = 0;
     playbackTickCount = 0;
+}
+
+function stopActivePlayback(reason: string): PlaybackState | null {
+    const positionTicks = getPositionTicks();
+    updateCurrentPlaybackPosition(positionTicks);
+    const stopped = stopCurrentPlayback(positionTicks);
+    if (!stopped) {
+        return null;
+    }
+
+    logDebug(`Jellyfin: Stopping playback (${reason})`);
+    resetPlaybackRuntime();
+    void reportPlaybackStopped(stopped.playback, stopped.positionTicks);
+    return stopped.playback;
 }
 
 function clearPlaybackState(reason: string): void {
@@ -403,16 +398,15 @@ function clearPlaybackState(reason: string): void {
     if (playback || pendingWindowTitle || shouldResetPlaylistOnNextLoad) {
         logDebug(`Jellyfin: Clearing playback state (${reason})`);
     }
-    cleanupPlaybackState();
+    stopActivePlayback(reason);
+    resetPlaybackRuntime();
     clearPlaybackHandoffs();
     pendingWindowTitle = null;
     shouldResetPlaylistOnNextLoad = false;
-    isReplacingPlayback = false;
 }
 
 function handleNoNextEpisode(reason: string, options: PlaybackHandlersOptions): void {
     logDebug("Jellyfin: No next episode:", reason);
-    isReplacingPlayback = true;
     try {
         core.open(JELLYFIN_SPLASH_URL);
     } catch (error) {

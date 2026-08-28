@@ -1,6 +1,8 @@
 import type { AuthUpdatedPayload } from "../shared/messages";
 import type { PlaybackContext } from "../shared/jellyfin";
+import type { StoppedPlayback } from "../shared/playbackLifecycle";
 
+import { PlaybackLifecycle } from "../shared/playbackLifecycle";
 import { normalizeServerUrl } from "./utils";
 
 export interface AuthState extends AuthUpdatedPayload {}
@@ -20,7 +22,7 @@ export interface PlaybackState extends PlaybackContext {
 }
 
 let authState: AuthState | null = null;
-let currentPlayback: PlaybackState | null = null;
+const playbackLifecycle = new PlaybackLifecycle<PlaybackState>();
 
 export function updateAuthState(payload: AuthUpdatedPayload): AuthState {
     authState = {
@@ -38,10 +40,18 @@ export function getAuthState(): AuthState | null {
     return authState;
 }
 
-export function setCurrentPlayback(playback: PlaybackState | null): void {
-    currentPlayback = playback;
+export function startCurrentPlayback(playback: PlaybackState): void {
+    playbackLifecycle.start(playback);
 }
 
 export function getCurrentPlayback(): PlaybackState | null {
-    return currentPlayback;
+    return playbackLifecycle.current;
+}
+
+export function updateCurrentPlaybackPosition(positionTicks: number): void {
+    playbackLifecycle.updatePosition(positionTicks);
+}
+
+export function stopCurrentPlayback(positionTicks: number): StoppedPlayback<PlaybackState> | null {
+    return playbackLifecycle.stop(positionTicks);
 }
