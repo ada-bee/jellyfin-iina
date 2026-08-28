@@ -1,4 +1,12 @@
-import type { JellyfinBaseItem } from "./jellyfin";
+import type {
+    JellyfinBaseItem,
+    JellyfinDeviceProfile,
+    JellyfinMediaSourceInfo,
+    JellyfinPlaybackInfoDto,
+    JellyfinPlaybackInfoResponse,
+    PlaybackHandoff
+} from "./jellyfin";
+import { normalizeServerUrl } from "./url";
 
 export interface StreamUrlOptions {
     serverUrl: string;
@@ -6,9 +14,12 @@ export interface StreamUrlOptions {
     deviceId: string;
     userId: string;
     itemId: string;
-    runtimeTicks: number;
     mediaSourceId?: string;
     playSessionId?: string;
+}
+
+export interface PlaybackHandoffOptions extends StreamUrlOptions {
+    runtimeTicks?: number | null;
     seriesId?: string;
     seasonId?: string;
     episodeIndex?: number | null;
@@ -28,25 +39,79 @@ export function buildJellyfinStreamUrl(options: StreamUrlOptions): string {
         Static: "true",
         mediaSourceId: mediaSourceId,
         playSessionId: options.playSessionId || "",
-        api_key: options.accessToken,
-        _jf_itemId: options.itemId,
-        _jf_runtimeTicks: options.runtimeTicks || 0,
-        _jf_deviceId: options.deviceId,
-        _jf_userId: options.userId
+        api_key: options.accessToken
     };
-
-    if (options.seriesId) {
-        params._jf_seriesId = options.seriesId;
-    }
-    if (options.seasonId) {
-        params._jf_seasonId = options.seasonId;
-    }
-    if (options.episodeIndex !== undefined && options.episodeIndex !== null) {
-        params._jf_episodeIndex = options.episodeIndex;
-    }
 
     const queryString = buildQueryString(params);
     return `${baseUrl}/Videos/${options.itemId}/stream?${queryString}`;
+}
+
+export function buildPlaybackInfoRequest(
+    userId: string,
+    deviceProfile: JellyfinDeviceProfile
+): JellyfinPlaybackInfoDto {
+    return {
+        UserId: userId,
+        DeviceProfile: deviceProfile,
+        EnableDirectPlay: true,
+        EnableDirectStream: true,
+        EnableTranscoding: false,
+        AllowVideoStreamCopy: true,
+        AllowAudioStreamCopy: true
+    };
+}
+
+export function selectDirectPlaySource(
+    playbackInfo: JellyfinPlaybackInfoResponse
+): JellyfinMediaSourceInfo {
+    const mediaSource = playbackInfo.MediaSources?.find(source => (
+        Boolean(source.Id) && source.SupportsDirectPlay === true
+    ));
+    if (mediaSource) {
+        return mediaSource;
+    }
+
+    const errorCode = playbackInfo.ErrorCode ? ` (${playbackInfo.ErrorCode})` : "";
+    throw new Error(`Jellyfin did not provide a playable media source${errorCode}.`);
+}
+
+export function buildPlaybackHandoff(
+    playbackInfo: JellyfinPlaybackInfoResponse,
+    options: PlaybackHandoffOptions
+): PlaybackHandoff {
+    const playSessionId = playbackInfo.PlaySessionId || "";
+    if (!playSessionId) {
+        throw new Error("Jellyfin did not provide a playback session.");
+    }
+
+    const mediaSource = selectDirectPlaySource(playbackInfo);
+    const mediaSourceId = mediaSource.Id || "";
+    const url = buildJellyfinStreamUrl({
+        ...options,
+        mediaSourceId,
+        playSessionId
+    });
+    if (!url) {
+        throw new Error("Jellyfin returned incomplete playback information.");
+    }
+
+    return {
+        url,
+        serverUrl: normalizeServerUrl(options.serverUrl),
+        accessToken: options.accessToken,
+        deviceId: options.deviceId,
+        userId: options.userId,
+        itemId: options.itemId,
+        mediaSourceId,
+        playSessionId,
+        runtimeTicks: mediaSource.RunTimeTicks || options.runtimeTicks || 0,
+        playMethod: "DirectPlay",
+        audioStreamIndex: mediaSource.DefaultAudioStreamIndex,
+        subtitleStreamIndex: mediaSource.DefaultSubtitleStreamIndex,
+        seriesId: options.seriesId,
+        seasonId: options.seasonId,
+        episodeIndex: options.episodeIndex
+    };
 }
 
 export function buildJellyfinWindowTitle(item: JellyfinBaseItem | null, fallbackName: string): string {
@@ -82,10 +147,6 @@ export function buildJellyfinWindowTitle(item: JellyfinBaseItem | null, fallback
     return name;
 }
 
-
-function normalizeServerUrl(url: string): string {
-    return url.trim().replace(/\/+$/, "");
-}
 
 function buildQueryString(params: Record<string, string | number | boolean>): string {
     const parts: string[] = [];

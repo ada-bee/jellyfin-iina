@@ -1,7 +1,8 @@
 import { MESSAGE_NAMES } from "../shared/messages";
-import { buildJellyfinStreamUrl, buildJellyfinWindowTitle } from "../shared/playback";
+import { buildJellyfinWindowTitle, buildPlaybackHandoff } from "../shared/playback";
 import { TICKS_PER_SECOND } from "./constants";
 import { fetchItemDetails, fetchPlaybackInfo } from "./api";
+import { showError } from "./render";
 import { state } from "./state";
 import { getDeviceId } from "./storage";
 
@@ -11,8 +12,12 @@ export interface PlaybackContext {
     episodeIndex?: number | null;
 }
 
-function openInIINA(url: string, resumeSeconds: number = 0, title: string = ""): void {
-    iina.postMessage(MESSAGE_NAMES.PlayItem, { url, resumeSeconds, title });
+function openInIINA(
+    playback: ReturnType<typeof buildPlaybackHandoff>,
+    resumeSeconds: number = 0,
+    title: string = ""
+): void {
+    iina.postMessage(MESSAGE_NAMES.PlayItem, { playback, resumeSeconds, title });
 }
 
 export async function playItem(
@@ -27,10 +32,6 @@ export async function playItem(
         if (!playbackInfo) {
             throw new Error("Missing playback info");
         }
-        const playSessionId = playbackInfo?.PlaySessionId || "";
-        const mediaSource = playbackInfo?.MediaSources?.[0];
-        const mediaSourceId = mediaSource?.Id || itemId;
-        const runtimeTicks = mediaSource?.RunTimeTicks || 0;
         const itemDetails = await fetchItemDetails(itemId);
         const windowTitle = preferredTitle || buildJellyfinWindowTitle(itemDetails, name);
 
@@ -42,15 +43,13 @@ export async function playItem(
                 : itemDetails?.IndexNumber
         };
 
-        const streamUrl = buildJellyfinStreamUrl({
+        const playback = buildPlaybackHandoff(playbackInfo, {
             serverUrl: state.serverUrl,
             accessToken: state.accessToken,
             deviceId: getDeviceId(),
             userId: state.userId,
             itemId: itemId,
-            runtimeTicks: runtimeTicks,
-            mediaSourceId: mediaSourceId,
-            playSessionId: playSessionId,
+            runtimeTicks: itemDetails?.RunTimeTicks,
             seriesId: resolvedContext.seriesId,
             seasonId: resolvedContext.seasonId,
             episodeIndex: resolvedContext.episodeIndex
@@ -60,14 +59,9 @@ export async function playItem(
             ? Math.floor(resumePositionTicks / TICKS_PER_SECOND)
             : 0;
 
-        openInIINA(streamUrl, resumeSeconds, windowTitle || name);
+        openInIINA(playback, resumeSeconds, windowTitle || name);
     } catch (error) {
         console.error("Failed to get playback info:", error);
-        const streamUrl = `${state.serverUrl}/Items/${itemId}/Download?api_key=${state.accessToken}`;
-        const resumeSeconds = resumePositionTicks > 0
-            ? Math.floor(resumePositionTicks / TICKS_PER_SECOND)
-            : 0;
-
-        openInIINA(streamUrl, resumeSeconds);
+        showError(error instanceof Error ? error.message : "Unable to start playback.");
     }
 }

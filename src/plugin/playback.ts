@@ -1,4 +1,9 @@
-import type { JellyfinPlaybackProgressInfo, JellyfinPlaybackStartInfo, JellyfinPlaybackStopInfo } from "../shared/jellyfin";
+import type {
+    JellyfinPlaybackProgressInfo,
+    JellyfinPlaybackStartInfo,
+    JellyfinPlaybackStopInfo,
+    PlaybackHandoff
+} from "../shared/jellyfin";
 import type { PlayItemPayload } from "../shared/messages";
 
 import {
@@ -10,16 +15,14 @@ import {
     TICKS_PER_SECOND
 } from "./constants";
 import { requestJson } from "./http";
+import { clearPlaybackHandoffs, registerPlaybackHandoff, takePlaybackHandoff } from "./handoffs";
 import { requestAutoplayNextEpisode, resetPlaylistAfterReplace, shouldRequestAutoplay } from "./autoplay";
 import { clearSegmentState, startSegmentPolling } from "./segments";
 import { getAuthState, getCurrentPlayback, PlaybackState, setCurrentPlayback } from "./state";
 import {
     formatError,
-    getUrlOrigin,
     isHttpsUrl,
     logDebug,
-    parseEpisodeIndex,
-    parseUrlParams,
     redactUrlForLog,
     sanitizeMediaTitle
 } from "./utils";
@@ -42,16 +45,18 @@ export function handlePlayItem(
     data: PlayItemPayload,
     options: { hideSidebar: () => void; showHttpsAlert: () => void }
 ): void {
-    if (!data || !data.url) {
+    if (!data || !data.playback || !data.playback.url) {
         return;
     }
 
-    const url = String(data.url);
-    if (!isHttpsUrl(url)) {
+    const playback = data.playback;
+    const url = String(playback.url);
+    if (!isHttpsUrl(url) || !isHttpsUrl(playback.serverUrl)) {
         options.showHttpsAlert();
         return;
     }
 
+    registerPlaybackHandoff(playback);
     pendingWindowTitle = data.title ? sanitizeMediaTitle(String(data.title)) : null;
     logDebug("Jellyfin: Playing URL:", redactUrlForLog(url, 80));
 
@@ -91,17 +96,14 @@ export function initializePlaybackHandlers(options: PlaybackHandlersOptions): vo
             return;
         }
 
-        if (!url.includes("/Videos/") || !url.includes("playSessionId=")) {
+        const handoff = takePlaybackHandoff(url);
+        if (!handoff) {
             clearPlaybackState("non-Jellyfin file loaded");
             return;
         }
 
         try {
-            const playback = buildPlaybackContextFromUrl(url);
-            if (!playback) {
-                clearPlaybackState("missing playback metadata");
-                return;
-            }
+            const playback = buildPlaybackState(handoff);
             if (!isHttpsUrl(playback.serverUrl)) {
                 console.error("Jellyfin: Skipping HTTP playback reporting");
                 return;
@@ -154,32 +156,18 @@ export function initializePlaybackHandlers(options: PlaybackHandlersOptions): vo
     });
 }
 
-function buildPlaybackContextFromUrl(url: string): PlaybackState | null {
-    const params = parseUrlParams(url);
-    const playSessionId = params["playSessionId"];
-    if (!playSessionId) {
-        return null;
-    }
-
-    const seriesId = params["_jf_seriesId"] || "";
-    const episodeIndex = parseEpisodeIndex(params["_jf_episodeIndex"]);
+function buildPlaybackState(handoff: PlaybackHandoff): PlaybackState {
+    const { url: _url, ...context } = handoff;
     return {
-        itemId: params["_jf_itemId"] || "",
-        mediaSourceId: params["mediaSourceId"] || "",
-        playSessionId: playSessionId,
-        accessToken: params["api_key"] || "",
-        deviceId: params["_jf_deviceId"] || "",
-        userId: params["_jf_userId"] || "",
-        serverUrl: getUrlOrigin(url),
-        runtimeTicks: Number.parseInt(params["_jf_runtimeTicks"], 10) || 0,
-        seriesId: seriesId,
-        seasonId: params["_jf_seasonId"] || "",
-        episodeIndex: episodeIndex,
+        ...context,
         autoplayQueued: false,
         autoplayRequestId: 0,
         nextItemId: "",
         segments: [],
-        isEpisode: Boolean(seriesId || episodeIndex !== null)
+        isEpisode: Boolean(
+            context.seriesId
+            || (context.episodeIndex !== null && context.episodeIndex !== undefined)
+        )
     };
 }
 
@@ -278,7 +266,9 @@ async function reportPlaybackStart(): Promise<void> {
             PositionTicks: getPositionTicks(),
             CanSeek: true,
             IsPaused: false,
-            PlayMethod: "DirectStream"
+            PlayMethod: playback.playMethod,
+            AudioStreamIndex: playback.audioStreamIndex,
+            SubtitleStreamIndex: playback.subtitleStreamIndex
         };
         await requestJson(httpContext, {
             method: "POST",
@@ -304,7 +294,9 @@ async function reportPlaybackProgress(isPaused: boolean): Promise<void> {
             PlaySessionId: playback.playSessionId,
             PositionTicks: getPositionTicks(),
             IsPaused: isPaused || false,
-            PlayMethod: "DirectStream"
+            PlayMethod: playback.playMethod,
+            AudioStreamIndex: playback.audioStreamIndex,
+            SubtitleStreamIndex: playback.subtitleStreamIndex
         };
         await requestJson(httpContext, {
             method: "POST",
@@ -412,6 +404,7 @@ function clearPlaybackState(reason: string): void {
         logDebug(`Jellyfin: Clearing playback state (${reason})`);
     }
     cleanupPlaybackState();
+    clearPlaybackHandoffs();
     pendingWindowTitle = null;
     shouldResetPlaylistOnNextLoad = false;
     isReplacingPlayback = false;

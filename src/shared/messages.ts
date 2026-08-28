@@ -1,3 +1,5 @@
+import type { PlaybackHandoff } from "./jellyfin";
+
 export const MESSAGE_NAMES = {
     AuthUpdated: "authUpdated",
     AuthCleared: "authCleared",
@@ -22,7 +24,7 @@ export interface AuthUpdatedPayload {
 export type AuthClearedPayload = EmptyPayload;
 
 export interface PlayItemPayload {
-    url: string;
+    playback: PlaybackHandoff;
     resumeSeconds?: number;
     title?: string;
 }

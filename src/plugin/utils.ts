@@ -8,45 +8,7 @@ export function logDebug(...args: unknown[]): void {
     }
 }
 
-export function normalizeServerUrl(url: string): string {
-    return url.trim().replace(/\/+$/, "");
-}
-
-export { isHttpsUrl } from "../shared/url";
-
-export function parseUrlParams(url: string): Record<string, string> {
-    const params: Record<string, string> = {};
-    const queryStart = url.indexOf("?");
-    if (queryStart === -1) {
-        return params;
-    }
-
-    const queryString = url.substring(queryStart + 1);
-    const pairs = queryString.split("&");
-    for (const pair of pairs) {
-        const eqIndex = pair.indexOf("=");
-        if (eqIndex > 0) {
-            const key = decodeURIComponent(pair.substring(0, eqIndex));
-            const value = decodeURIComponent(pair.substring(eqIndex + 1));
-            params[key] = value;
-        }
-    }
-    return params;
-}
-
-export function getUrlOrigin(url: string): string {
-    const schemeEnd = url.indexOf("://");
-    if (schemeEnd === -1) {
-        return "";
-    }
-
-    const hostStart = schemeEnd + 3;
-    const pathStart = url.indexOf("/", hostStart);
-    if (pathStart === -1) {
-        return url;
-    }
-    return url.substring(0, pathStart);
-}
+export { isHttpsUrl, normalizeServerUrl } from "../shared/url";
 
 const SENSITIVE_QUERY_KEYS = new Set([
     "api_key",
@@ -81,14 +43,6 @@ export function redactUrlForLog(url: string, maxLength: number = 120): string {
     });
 
     return truncateLogValue(`${base}?${redactedParts.join("&")}`, maxLength);
-}
-
-export function parseEpisodeIndex(value: string | undefined | null): number | null {
-    if (value === undefined || value === null || value === "") {
-        return null;
-    }
-    const parsed = Number.parseInt(value, 10);
-    return Number.isNaN(parsed) ? null : parsed;
 }
 
 function isSensitiveQueryKey(key: string): boolean {

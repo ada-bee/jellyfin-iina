@@ -7,6 +7,7 @@ import type {
 
 import { buildMediaBrowserAuthorizationHeader } from "../shared/auth";
 import { IINA_DEVICE_PROFILE } from "../shared/deviceProfile";
+import { buildPlaybackInfoRequest } from "../shared/playback";
 
 import { CLIENT_NAME, CLIENT_VERSION, DEVICE_NAME, ITEM_DETAILS_FIELDS } from "./constants";
 import { state } from "./state";
@@ -114,9 +115,7 @@ export async function fetchItemDetails(itemId: string): Promise<JellyfinBaseItem
 export async function fetchPlaybackInfo(itemId: string): Promise<JellyfinPlaybackInfoResponse | null> {
     return await apiRequest<JellyfinPlaybackInfoResponse>(
         "POST",
-        `/Items/${itemId}/PlaybackInfo?UserId=${state.userId}`,
-        {
-            DeviceProfile: IINA_DEVICE_PROFILE
-        }
+        `/Items/${itemId}/PlaybackInfo`,
+        buildPlaybackInfoRequest(state.userId, IINA_DEVICE_PROFILE)
     );
 }

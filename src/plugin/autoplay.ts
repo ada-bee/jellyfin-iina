@@ -1,10 +1,15 @@
 import type { JellyfinBaseItem, JellyfinBaseItemQuery, JellyfinPlaybackInfoResponse } from "../shared/jellyfin";
 
 import { IINA_DEVICE_PROFILE } from "../shared/deviceProfile";
-import { buildJellyfinStreamUrl, buildJellyfinWindowTitle } from "../shared/playback";
+import {
+    buildJellyfinWindowTitle,
+    buildPlaybackHandoff,
+    buildPlaybackInfoRequest
+} from "../shared/playback";
 
 import { AUTOPLAY_NEXT_PREF_KEY, FIELDS_EPISODES, FIELDS_SEASONS, ITEM_DETAILS_FIELDS } from "./constants";
 import { requestJson } from "./http";
+import { getRegisteredPlaybackItemId, registerPlaybackHandoff } from "./handoffs";
 import { getAuthState, getCurrentPlayback } from "./state";
 import { formatError, logDebug, sanitizeMediaTitle } from "./utils";
 
@@ -50,24 +55,6 @@ function getHttpContext() {
 }
 
 
-function getPlaybackItemIdFromPlaylistEntry(entry: { filename?: string } | null): string {
-    if (!entry || !entry.filename) {
-        return "";
-    }
-    const queryStart = entry.filename.indexOf("?");
-    if (queryStart === -1) {
-        return "";
-    }
-    const params = entry.filename.substring(queryStart + 1).split("&");
-    for (const pair of params) {
-        const [key, value] = pair.split("=");
-        if (key === "_jf_itemId" && value) {
-            return decodeURIComponent(value);
-        }
-    }
-    return "";
-}
-
 function findCurrentPlaylistIndex(playlist: { current?: boolean; playing?: boolean }[]): number {
     if (!Array.isArray(playlist)) {
         return -1;
@@ -93,7 +80,10 @@ function prunePlaylistToCurrentEntry(): void {
     }
 }
 
-function queueNextEpisode(url: string, title: string): void {
+function queueNextEpisode(
+    playbackHandoff: ReturnType<typeof buildPlaybackHandoff>,
+    title: string
+): void {
     const playback = getCurrentPlayback();
     if (!playback) {
         return;
@@ -105,7 +95,9 @@ function queueNextEpisode(url: string, title: string): void {
 
         if (currentIndex !== -1 && playlist) {
             const nextEntry = playlist[currentIndex + 1];
-            const nextItemId = getPlaybackItemIdFromPlaylistEntry(nextEntry);
+            const nextItemId = nextEntry?.filename
+                ? getRegisteredPlaybackItemId(nextEntry.filename)
+                : "";
 
             if (nextItemId && nextItemId === playback.nextItemId) {
                 playback.autoplayQueued = true;
@@ -117,11 +109,12 @@ function queueNextEpisode(url: string, title: string): void {
             }
         }
 
+        registerPlaybackHandoff(playbackHandoff);
         if (title) {
             const safeTitle = sanitizeMediaTitle(title);
-            mpv.command("loadfile", [url, "insert-next", "-1", `force-media-title=${safeTitle}`]);
+            mpv.command("loadfile", [playbackHandoff.url, "insert-next", "-1", `force-media-title=${safeTitle}`]);
         } else {
-            mpv.command("loadfile", [url, "insert-next"]);
+            mpv.command("loadfile", [playbackHandoff.url, "insert-next"]);
         }
         playback.autoplayQueued = true;
         logDebug("Jellyfin: Queued next episode");
@@ -247,37 +240,29 @@ async function buildAutoplayStream(itemId: string, context: {
     const playbackInfo = await requestJson<JellyfinPlaybackInfoResponse>(httpContext, {
         method: "POST",
         endpoint: `/Items/${itemId}/PlaybackInfo`,
-        query: {
-            UserId: userId
-        },
-        body: {
-            DeviceProfile: IINA_DEVICE_PROFILE
-        }
+        body: buildPlaybackInfoRequest(userId, IINA_DEVICE_PROFILE)
     });
 
-    const playSessionId = playbackInfo?.PlaySessionId || "";
-    const mediaSource = playbackInfo?.MediaSources?.[0];
-    const mediaSourceId = mediaSource?.Id || itemId;
-    const runtimeTicks = mediaSource?.RunTimeTicks || 0;
+    if (!playbackInfo) {
+        throw new Error("Missing playback info");
+    }
     const itemDetails = await fetchItemDetails(itemId);
     const windowTitle = buildJellyfinWindowTitle(itemDetails, itemDetails?.Name || "");
 
-    const streamUrl = buildJellyfinStreamUrl({
+    const playbackHandoff = buildPlaybackHandoff(playbackInfo, {
         serverUrl: httpContext.serverUrl,
         accessToken: httpContext.accessToken,
         deviceId: httpContext.deviceId,
         userId: userId,
         itemId: itemId,
-        runtimeTicks: runtimeTicks,
-        mediaSourceId: mediaSourceId,
-        playSessionId: playSessionId,
+        runtimeTicks: itemDetails?.RunTimeTicks,
         seriesId: context.seriesId,
         seasonId: context.seasonId,
         episodeIndex: context.episodeIndex ?? undefined
     });
 
     return {
-        url: streamUrl,
+        playback: playbackHandoff,
         title: windowTitle
     };
 }
@@ -342,7 +327,7 @@ export async function requestAutoplayNextEpisode(): Promise<void> {
         }
 
         latestPlayback.nextItemId = nextEpisode.Id || "";
-        queueNextEpisode(streamData.url, streamData.title || "");
+        queueNextEpisode(streamData.playback, streamData.title || "");
     } catch (error) {
         const latestPlayback = getCurrentPlayback();
         if (latestPlayback && latestPlayback.autoplayRequestId === requestId) {

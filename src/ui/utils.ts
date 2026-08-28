@@ -1,15 +1,11 @@
 import { DEBUG_LOGS, TICKS_PER_MINUTE } from "./constants";
 
-export { isHttpsUrl } from "../shared/url";
+export { isHttpsUrl, normalizeServerUrl } from "../shared/url";
 
 export function log(...args: unknown[]): void {
     if (DEBUG_LOGS) {
         console.log("Jellyfin UI:", ...args);
     }
-}
-
-export function normalizeServerUrl(value: string): string {
-    return value.trim().replace(/\/+$/, "");
 }
 
 export function getServerHost(serverUrl: string): string {

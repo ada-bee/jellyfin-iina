@@ -10,5 +10,6 @@
     "skipLibCheck": true,
     "strict": true
   },
-  "include": ["src/plugin/**/*.ts", "src/shared/**/*.ts"]
+  "include": ["src/plugin/**/*.ts", "src/shared/**/*.ts"],
+  "exclude": ["src/**/*.test.ts"]
 }

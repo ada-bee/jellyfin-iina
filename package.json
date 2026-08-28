@@ -2,6 +2,7 @@
   "name": "jellyfin-iina",
   "private": true,
   "scripts": {
+    "test": "bun test",
     "typecheck": "tsc --noEmit -p tsconfig.plugin.json && tsc --noEmit -p tsconfig.ui.json",
     "build": "bun run build:plugin && bun run build:ui",
     "build:plugin": "bun build src/plugin/main.ts src/plugin/global.ts --outdir xyz.brbc.jellyfin.iinaplugin/dist --target=browser --format=iife",

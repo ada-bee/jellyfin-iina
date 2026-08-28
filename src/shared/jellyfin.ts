@@ -7,10 +7,12 @@ import type {
     MediaSegmentDto,
     MediaSegmentDtoQueryResult,
     MediaSourceInfo,
+    PlaybackInfoDto,
     PlaybackInfoResponse,
     PlaybackProgressInfo,
     PlaybackStartInfo,
     PlaybackStopInfo,
+    PlayMethod,
     PublicSystemInfo,
     UserItemDataDto
 } from "@jellyfin/sdk/lib/generated-client/models";
@@ -23,10 +25,12 @@ export type JellyfinDeviceProfile = DeviceProfile;
 export type JellyfinMediaSegment = MediaSegmentDto;
 export type JellyfinMediaSegmentQuery = MediaSegmentDtoQueryResult;
 export type JellyfinMediaSourceInfo = MediaSourceInfo;
+export type JellyfinPlaybackInfoDto = PlaybackInfoDto;
 export type JellyfinPlaybackInfoResponse = PlaybackInfoResponse;
 export type JellyfinPlaybackProgressInfo = PlaybackProgressInfo;
 export type JellyfinPlaybackStartInfo = PlaybackStartInfo;
 export type JellyfinPlaybackStopInfo = PlaybackStopInfo;
+export type JellyfinPlayMethod = PlayMethod;
 export type JellyfinPublicSystemInfo = PublicSystemInfo;
 export type JellyfinUserItemData = UserItemDataDto;
 
@@ -46,10 +50,17 @@ export interface PlaybackContext {
     deviceId: string;
     serverUrl: string;
     runtimeTicks: number;
+    playMethod: JellyfinPlayMethod;
+    audioStreamIndex?: number | null;
+    subtitleStreamIndex?: number | null;
     seriesId?: string;
     seasonId?: string;
     episodeIndex?: number | null;
     userId?: string;
+}
+
+export interface PlaybackHandoff extends PlaybackContext {
+    url: string;
 }
 
 export interface AutoplayRequest {
