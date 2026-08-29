@@ -6,6 +6,7 @@ import type {
 } from "../shared/jellyfin";
 import type { PlayItemPayload } from "../shared/messages";
 
+import { PlaybackResumeCoordinator } from "../shared/playbackResume";
 import {
     EOF_WATCH_THRESHOLD_SECONDS,
     JELLYFIN_SPLASH_URL,
@@ -42,6 +43,7 @@ let pendingWindowTitle: string | null = null;
 let shouldResetPlaylistOnNextLoad = false;
 let playbackTickTimer: ReturnType<typeof setInterval> | null = null;
 let playbackTickCount = 0;
+const playbackResume = new PlaybackResumeCoordinator();
 
 export interface PlaybackHandlersOptions {
     showSidebar: () => void;
@@ -68,6 +70,7 @@ export function handlePlayItem(
     logDebug("Jellyfin: Playing URL:", redactUrlForLog(url, 80));
 
     stopActivePlayback("replacement requested");
+    playbackResume.request(playback.playSessionId, data.resumeSeconds || 0);
     shouldResetPlaylistOnNextLoad = true;
     if (data.title) {
         const safeTitle = sanitizeMediaTitle(String(data.title));
@@ -77,13 +80,6 @@ export function handlePlayItem(
     }
 
     options.hideSidebar();
-
-    if (data.resumeSeconds && data.resumeSeconds > 0) {
-        logDebug("Jellyfin: Will seek to", data.resumeSeconds, "seconds");
-        setTimeout(() => {
-            mpv.set("time-pos", data.resumeSeconds || 0);
-        }, RESUME_SEEK_DELAY_MS);
-    }
 }
 
 export function initializePlaybackHandlers(options: PlaybackHandlersOptions): void {
@@ -111,12 +107,14 @@ export function initializePlaybackHandlers(options: PlaybackHandlersOptions): vo
             const playback = buildPlaybackState(handoff);
             if (!isHttpsUrl(playback.serverUrl)) {
                 console.error("Jellyfin: Skipping HTTP playback reporting");
+                clearPlaybackState("invalid Jellyfin server URL");
                 return;
             }
 
             startPlaybackSession(playback, options);
         } catch (error) {
             logDebug("Jellyfin: URL parse error:", error instanceof Error ? error.message : error);
+            clearPlaybackState("invalid Jellyfin handoff");
         }
     });
 
@@ -164,10 +162,6 @@ export function initializePlaybackHandlers(options: PlaybackHandlersOptions): vo
     event.on("iina.window-will-close", () => {
         handleShutdown("window close");
     });
-
-    event.on("iina.application-will-terminate" as `mpv.${string}`, () => {
-        handleShutdown("app terminate");
-    });
 }
 
 function buildPlaybackState(handoff: PlaybackHandoff): PlaybackState {
@@ -192,6 +186,15 @@ function startPlaybackSession(playback: PlaybackState, options: PlaybackHandlers
     clearSegmentState();
 
     startCurrentPlayback(playback);
+    const resumeScheduled = playbackResume.activate(
+        playback.playSessionId,
+        RESUME_SEEK_DELAY_MS,
+        (playSessionId) => getCurrentPlayback()?.playSessionId === playSessionId,
+        (seconds) => mpv.set("time-pos", seconds)
+    );
+    if (resumeScheduled) {
+        logDebug("Jellyfin: Will resume matching session after file load");
+    }
 
     playbackTickCount = 0;
     startPlaybackTick(options);
@@ -410,6 +413,7 @@ function stopActivePlayback(reason: string): PlaybackState | null {
     }
 
     logDebug(`Jellyfin: Stopping playback (${reason})`);
+    playbackResume.cancel();
     resetPlaybackRuntime();
     void reportPlaybackStopped(stopped.playback, stopped.positionTicks);
     return stopped.playback;
@@ -421,6 +425,7 @@ function clearPlaybackState(reason: string): void {
         logDebug(`Jellyfin: Clearing playback state (${reason})`);
     }
     stopActivePlayback(reason);
+    playbackResume.cancel();
     resetPlaybackRuntime();
     clearPlaybackHandoffs();
     pendingWindowTitle = null;
