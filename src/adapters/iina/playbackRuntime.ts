@@ -24,6 +24,9 @@ export interface PlaybackHandlersOptions {
     showSidebar: () => void;
     refreshSidebar: () => void;
     showHttpsAlert: () => void;
+    setActiveBackdropItem: (itemId: string) => void;
+    clearActiveBackdropItem: () => void;
+    isSplashPath: (path: string) => boolean;
 }
 
 export function initializePlaybackHandlers(
@@ -40,7 +43,9 @@ export function initializePlaybackHandlers(
         showHttpsAlert: options.showHttpsAlert,
         showSkipButton,
         hideSkipButton,
-        setSkipHandler: setSkipSegmentHandler
+        setSkipHandler: setSkipSegmentHandler,
+        setActiveBackdropItem: options.setActiveBackdropItem,
+        clearActiveBackdropItem: options.clearActiveBackdropItem
     };
     const controller = new PlaybackController({
         player: new IinaPlayer(logger),
@@ -59,7 +64,8 @@ export function initializePlaybackHandlers(
             progressReportIntervalMs: PROGRESS_REPORT_INTERVAL_MS,
             playbackTickIntervalMs: PLAYBACK_TICK_INTERVAL_MS,
             eofWatchThresholdSeconds: EOF_WATCH_THRESHOLD_SECONDS,
-            skipSegmentPollIntervalMs: SKIP_SEGMENT_POLL_INTERVAL_MS
+            skipSegmentPollIntervalMs: SKIP_SEGMENT_POLL_INTERVAL_MS,
+            isSplashPath: options.isSplashPath
         }
     });
 

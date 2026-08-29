@@ -21,11 +21,41 @@
     }
     return reportedSidebar === JELLYFIN_SIDEBAR_NAME;
   }
-  function isBackdropPlaybackPaused(playbackPaused, mediaPath) {
-    return playbackPaused || mediaPath.endsWith("/Jellyfin.png");
+  function isJellyfinSplashPath(mediaPath, splashPaths) {
+    const actualPath = normalizeFilePath(mediaPath);
+    if (!actualPath) {
+      return false;
+    }
+    return splashPaths.some((path) => matchesExpectedPath(actualPath, normalizeFilePath(path)));
   }
-  function shouldShowBackdrop(state) {
-    return state.playbackPaused && state.jellyfinSidebarOpen && state.previewsEnabled;
+  function matchesExpectedPath(actualPath, expectedPath) {
+    if (!expectedPath) {
+      return false;
+    }
+    if (!expectedPath.startsWith("~/")) {
+      return actualPath === expectedPath;
+    }
+    return actualPath === expectedPath || actualPath.endsWith(expectedPath.slice(1));
+  }
+  function resolveBackdropMode(state) {
+    if (!state.jellyfinSidebarOpen || !state.previewsEnabled) {
+      return "hidden";
+    }
+    if (isJellyfinSplashPath(state.mediaPath, state.splashPaths)) {
+      return "browse";
+    }
+    if (state.jellyfinPlaybackActive && state.playbackPaused) {
+      return "paused";
+    }
+    return "hidden";
+  }
+  function normalizeFilePath(path) {
+    const withoutScheme = path.trim().replace(/^file:\/\//, "");
+    try {
+      return decodeURIComponent(withoutScheme);
+    } catch {
+      return withoutScheme;
+    }
   }
 
   // src/shared/constants.ts
@@ -72,9 +102,11 @@
   var CLIENT_VERSION = Info_default.version;
   // src/adapters/iina/constants.ts
   var SHOW_SIDEBAR_DELAY_MS = 300;
+  var JELLYFIN_PRODUCTION_PLUGIN_ROOT = "~/Library/Application Support/com.colliderli.iina/plugins/xyz.brbc.jellyfin.iinaplugin";
+  var JELLYFIN_DEV_PLUGIN_ROOT = `${JELLYFIN_PRODUCTION_PLUGIN_ROOT}-dev`;
   var JELLYFIN_SPLASH_URLS = [
-    "~/Library/Application Support/com.colliderli.iina/plugins/xyz.brbc.jellyfin.iinaplugin/assets/Jellyfin.png",
-    "~/Library/Application Support/com.colliderli.iina/plugins/xyz.brbc.jellyfin.iinaplugin-dev/assets/Jellyfin.png"
+    `${JELLYFIN_PRODUCTION_PLUGIN_ROOT}/assets/Jellyfin.png`,
+    `${JELLYFIN_DEV_PLUGIN_ROOT}/assets/Jellyfin.png`
   ];
   function resolveJellyfinSplashUrl(fileExists) {
     for (const path of JELLYFIN_SPLASH_URLS) {
@@ -352,7 +384,7 @@
       if (!path) {
         return;
       }
-      if (path.includes("Jellyfin.png")) {
+      if (this.dependencies.config.isSplashPath(path)) {
         this.dependencies.logger.debug("Jellyfin: Splash loaded, showing sidebar");
         this.clearPlaybackState("splash loaded");
         this.dependencies.view.showSidebar();
@@ -423,6 +455,7 @@
         segments: []
       };
       this.model.active = active;
+      this.dependencies.view.setActiveBackdropItem(session.seriesId || session.itemId);
       this.activateResume(active, pending.resumeSeconds);
       this.startPlaybackTick();
       if (pending.title) {
@@ -520,6 +553,7 @@
       }
       const positionTicks = currentPosition || active.lastKnownPositionTicks || 0;
       this.model.active = null;
+      this.dependencies.view.clearActiveBackdropItem();
       this.dependencies.logger.debug(`Jellyfin: Stopping playback (${reason})`);
       this.cancelResume();
       this.resetPlaybackRuntime();
@@ -771,6 +805,23 @@
     return segments.map((segment) => segment.type === "Outro" && segment.endSeconds === null ? { ...segment, endSeconds: durationSeconds } : segment);
   }
 
+  // src/overlay/presentation.ts
+  function resolveBackdropSources(mode, activeItemId, browseItemIds, browseOverrideItemId) {
+    if (mode === "paused") {
+      return {
+        itemIds: activeItemId ? [activeItemId] : [],
+        overrideItemId: ""
+      };
+    }
+    if (mode === "browse") {
+      return {
+        itemIds: browseItemIds,
+        overrideItemId: browseOverrideItemId
+      };
+    }
+    return { itemIds: [], overrideItemId: "" };
+  }
+
   // src/jellyfin/images.ts
   function buildJellyfinImageUrl(options) {
     if (!options.serverUrl || !options.itemId) {
@@ -814,9 +865,11 @@
   var OVERLAY_HIDE_DELAY_MS = 450;
   var initialized = false;
   var overlayReady = false;
-  var backdropEligible = false;
+  var backdropMode = "hidden";
+  var activeBackdropItemId = "";
   var playlistItemIds = [];
   var overrideItemId = "";
+  var sidebarWidth = 0;
   var skipButtonLabel = "";
   var skipSegmentHandler = null;
   var overlayHideTimer = null;
@@ -838,8 +891,10 @@
     if (!overlayReady) {
       return;
     }
-    const playlistUrls = playlistItemIds.map(buildBackdropUrl).filter(Boolean);
-    const overrideUrl = overrideItemId ? buildBackdropUrl(overrideItemId) : "";
+    const sources = resolveBackdropSources(backdropMode, activeBackdropItemId, playlistItemIds, overrideItemId);
+    const playlistUrls = sources.itemIds.map(buildBackdropUrl).filter(Boolean);
+    const overrideUrl = sources.overrideItemId ? buildBackdropUrl(sources.overrideItemId) : "";
+    const backdropEligible = backdropMode !== "hidden";
     const shouldShowOverlay = backdropEligible && (playlistUrls.length > 0 || overrideUrl) || Boolean(skipButtonLabel);
     if (shouldShowOverlay) {
       clearOverlayHideTimer();
@@ -848,7 +903,8 @@
     overlay.postMessage(MESSAGE_NAMES.OverlayBackdrops, {
       playlistUrls,
       overrideUrl,
-      eligible: backdropEligible
+      eligible: backdropEligible,
+      sidebarWidth
     });
     overlay.postMessage(MESSAGE_NAMES.OverlaySkipButton, {
       label: skipButtonLabel
@@ -877,11 +933,20 @@
     overlayReady = false;
     overlay.loadFile("ui/overlay.html");
   }
-  function setBackdropEligibility(eligible) {
-    if (backdropEligible === eligible) {
+  function setBackdropPresentation(mode, itemId) {
+    if (backdropMode === mode && activeBackdropItemId === itemId) {
       return;
     }
-    backdropEligible = eligible;
+    backdropMode = mode;
+    activeBackdropItemId = itemId;
+    syncOverlay();
+  }
+  function setSidebarWidth(width) {
+    const nextWidth = typeof width === "number" && Number.isFinite(width) ? Math.max(0, width) : 0;
+    if (sidebarWidth === nextWidth) {
+      return;
+    }
+    sidebarWidth = nextWidth;
     syncOverlay();
   }
   function setBackdropContext(payload) {
@@ -1584,7 +1649,9 @@
       showHttpsAlert: options.showHttpsAlert,
       showSkipButton,
       hideSkipButton,
-      setSkipHandler: setSkipSegmentHandler
+      setSkipHandler: setSkipSegmentHandler,
+      setActiveBackdropItem: options.setActiveBackdropItem,
+      clearActiveBackdropItem: options.clearActiveBackdropItem
     };
     const controller = new PlaybackController({
       player: new IinaPlayer(logger),
@@ -1600,7 +1667,8 @@
         progressReportIntervalMs: PROGRESS_REPORT_INTERVAL_MS,
         playbackTickIntervalMs: PLAYBACK_TICK_INTERVAL_MS,
         eofWatchThresholdSeconds: EOF_WATCH_THRESHOLD_SECONDS,
-        skipSegmentPollIntervalMs: SKIP_SEGMENT_POLL_INTERVAL_MS
+        skipSegmentPollIntervalMs: SKIP_SEGMENT_POLL_INTERVAL_MS,
+        isSplashPath: options.isSplashPath
       }
     });
     iina.event.on("mpv.file-loaded", () => controller.onFileLoaded());
@@ -1626,7 +1694,16 @@
   var pendingShowSidebar = false;
   var sidebarVisible = false;
   var backdropPreviewsEnabled = true;
+  var activeBackdropItemId2 = "";
   var sidebarVisibilityTimer = null;
+  var jellyfinSplashUrl = resolveJellyfinSplashUrl((path) => iina.file.exists(path));
+  var jellyfinSplashPaths = new Set(JELLYFIN_SPLASH_URLS.flatMap((path) => {
+    try {
+      return [path, utils.resolvePath(path)].filter(Boolean);
+    } catch {
+      return [path];
+    }
+  }));
   function getSidebarVisibility() {
     const sidebarWithVisibility = sidebar;
     const trackedOpen = typeof sidebarWithVisibility.isVisible === "function" ? sidebarWithVisibility.isVisible() : sidebarVisible;
@@ -1669,14 +1746,18 @@
   }
   function syncBackdropEligibility() {
     if (!windowReady) {
-      setBackdropEligibility(false);
+      setBackdropPresentation("hidden", "");
       return;
     }
-    setBackdropEligibility(shouldShowBackdrop({
-      playbackPaused: isBackdropPlaybackPaused(mpv.getFlag("pause"), mpv.getString("path")),
+    const mode = resolveBackdropMode({
+      playbackPaused: mpv.getFlag("pause"),
+      jellyfinPlaybackActive: Boolean(activeBackdropItemId2),
+      mediaPath: mpv.getString("path"),
+      splashPaths: [...jellyfinSplashPaths],
       jellyfinSidebarOpen: getSidebarVisibility(),
       previewsEnabled: backdropPreviewsEnabled
-    }));
+    });
+    setBackdropPresentation(mode, mode === "paused" ? activeBackdropItemId2 : "");
   }
   function startSidebarVisibilityPolling() {
     if (sidebarVisibilityTimer) {
@@ -1700,7 +1781,7 @@
         windowLoaded: core.window.loaded,
         mediaPath: mpv.getString("path")
       })) {
-        core.open(resolveJellyfinSplashUrl((path) => iina.file.exists(path)));
+        core.open(jellyfinSplashUrl);
       }
       return;
     }
@@ -1713,6 +1794,7 @@
   }
   menu.addItem(menu.item("Jellyfin", toggleSidebarFromHotkey, { keyBinding: "Shift+J" }));
   initializeMediaOverlay();
+  addResolvedDevSplashPath();
   event2.on("mpv.pause.changed", syncBackdropEligibility);
   event2.on("iina.window-will-close", () => {
     stopSidebarVisibilityPolling();
@@ -1727,7 +1809,16 @@
     refreshSidebar: () => {
       sidebar.postMessage(MESSAGE_NAMES.RefreshSidebar, {});
     },
-    showHttpsAlert
+    showHttpsAlert,
+    setActiveBackdropItem: (itemId) => {
+      activeBackdropItemId2 = itemId;
+      syncBackdropEligibility();
+    },
+    clearActiveBackdropItem: () => {
+      activeBackdropItemId2 = "";
+      syncBackdropEligibility();
+    },
+    isSplashPath: (path) => isJellyfinSplashPath(path, [...jellyfinSplashPaths])
   });
   event2.on("iina.window-loaded", () => {
     logDebug("Jellyfin: Window loaded");
@@ -1744,6 +1835,7 @@
     });
     sidebar.onMessage(MESSAGE_NAMES.SidebarVisibilityChanged, (data) => {
       sidebarVisible = Boolean(data?.visible);
+      setSidebarWidth(data?.viewportWidth);
       syncBackdropEligibility();
     });
     sidebar.onMessage(MESSAGE_NAMES.AuthUpdated, (data) => {
@@ -1776,4 +1868,16 @@
     }
     logDebug("Jellyfin: Ready");
   });
+  async function addResolvedDevSplashPath() {
+    try {
+      const devPluginRoot = utils.resolvePath(JELLYFIN_DEV_PLUGIN_ROOT);
+      const result = await utils.exec("/usr/bin/readlink", [devPluginRoot]);
+      const resolvedRoot = result.status === 0 ? result.stdout.trim().replace(/\/+$/, "") : "";
+      if (!resolvedRoot.startsWith("/")) {
+        return;
+      }
+      jellyfinSplashPaths.add(`${resolvedRoot}/assets/Jellyfin.png`);
+      syncBackdropEligibility();
+    } catch {}
+  }
 })();

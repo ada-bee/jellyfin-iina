@@ -1,4 +1,6 @@
 import type { BackdropContextPayload } from "../../jellyfin/messages";
+import type { BackdropMode } from "../../overlay/eligibility";
+import { resolveBackdropSources } from "../../overlay/presentation";
 
 import { buildJellyfinImageUrl } from "../../jellyfin/images";
 import { MESSAGE_NAMES } from "../../jellyfin/messages";
@@ -10,9 +12,11 @@ const OVERLAY_HIDE_DELAY_MS = 450;
 
 let initialized = false;
 let overlayReady = false;
-let backdropEligible = false;
+let backdropMode: BackdropMode = "hidden";
+let activeBackdropItemId = "";
 let playlistItemIds: string[] = [];
 let overrideItemId = "";
+let sidebarWidth = 0;
 let skipButtonLabel = "";
 let skipSegmentHandler: (() => void) | null = null;
 let overlayHideTimer: ReturnType<typeof setTimeout> | null = null;
@@ -38,8 +42,17 @@ function syncOverlay(): void {
         return;
     }
 
-    const playlistUrls = playlistItemIds.map(buildBackdropUrl).filter(Boolean);
-    const overrideUrl = overrideItemId ? buildBackdropUrl(overrideItemId) : "";
+    const sources = resolveBackdropSources(
+        backdropMode,
+        activeBackdropItemId,
+        playlistItemIds,
+        overrideItemId
+    );
+    const playlistUrls = sources.itemIds.map(buildBackdropUrl).filter(Boolean);
+    const overrideUrl = sources.overrideItemId
+        ? buildBackdropUrl(sources.overrideItemId)
+        : "";
+    const backdropEligible = backdropMode !== "hidden";
     const shouldShowOverlay = (backdropEligible && (playlistUrls.length > 0 || overrideUrl))
         || Boolean(skipButtonLabel);
     if (shouldShowOverlay) {
@@ -50,7 +63,8 @@ function syncOverlay(): void {
     overlay.postMessage(MESSAGE_NAMES.OverlayBackdrops, {
         playlistUrls,
         overrideUrl,
-        eligible: backdropEligible
+        eligible: backdropEligible,
+        sidebarWidth
     });
     overlay.postMessage(MESSAGE_NAMES.OverlaySkipButton, {
         label: skipButtonLabel
@@ -84,11 +98,23 @@ export function loadMediaOverlay(): void {
     overlay.loadFile("ui/overlay.html");
 }
 
-export function setBackdropEligibility(eligible: boolean): void {
-    if (backdropEligible === eligible) {
+export function setBackdropPresentation(mode: BackdropMode, itemId: string): void {
+    if (backdropMode === mode && activeBackdropItemId === itemId) {
         return;
     }
-    backdropEligible = eligible;
+    backdropMode = mode;
+    activeBackdropItemId = itemId;
+    syncOverlay();
+}
+
+export function setSidebarWidth(width: unknown): void {
+    const nextWidth = typeof width === "number" && Number.isFinite(width)
+        ? Math.max(0, width)
+        : 0;
+    if (sidebarWidth === nextWidth) {
+        return;
+    }
+    sidebarWidth = nextWidth;
     syncOverlay();
 }
 

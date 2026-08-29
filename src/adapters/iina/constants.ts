@@ -4,9 +4,12 @@ export { CLIENT_VERSION } from "../../jellyfin/version";
 export { CLIENT_NAME, DEBUG_LOGS, DEVICE_NAME, TICKS_PER_SECOND };
 
 export const SHOW_SIDEBAR_DELAY_MS = 300;
-const JELLYFIN_SPLASH_URLS = [
-    "~/Library/Application Support/com.colliderli.iina/plugins/xyz.brbc.jellyfin.iinaplugin/assets/Jellyfin.png",
-    "~/Library/Application Support/com.colliderli.iina/plugins/xyz.brbc.jellyfin.iinaplugin-dev/assets/Jellyfin.png"
+export const JELLYFIN_PRODUCTION_PLUGIN_ROOT =
+    "~/Library/Application Support/com.colliderli.iina/plugins/xyz.brbc.jellyfin.iinaplugin";
+export const JELLYFIN_DEV_PLUGIN_ROOT = `${JELLYFIN_PRODUCTION_PLUGIN_ROOT}-dev`;
+export const JELLYFIN_SPLASH_URLS = [
+    `${JELLYFIN_PRODUCTION_PLUGIN_ROOT}/assets/Jellyfin.png`,
+    `${JELLYFIN_DEV_PLUGIN_ROOT}/assets/Jellyfin.png`
 ];
 
 export function resolveJellyfinSplashUrl(fileExists: (path: string) => boolean): string {

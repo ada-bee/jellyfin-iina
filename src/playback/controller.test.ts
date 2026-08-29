@@ -22,7 +22,8 @@ const CONFIG = {
     progressReportIntervalMs: 10_000,
     playbackTickIntervalMs: 1000,
     eofWatchThresholdSeconds: 0.5,
-    skipSegmentPollIntervalMs: 500
+    skipSegmentPollIntervalMs: 500,
+    isSplashPath: (path: string) => path === "splash.png"
 };
 
 describe("PlaybackController", () => {
@@ -156,6 +157,25 @@ describe("PlaybackController", () => {
         expect(harness.clock.intervals.size).toBe(0);
     });
 
+    test("publishes the active Jellyfin backdrop and clears it when playback stops", () => {
+        const harness = createHarness();
+        startPlayback(harness, handoff("episode", true));
+
+        expect(harness.view.activeBackdropItems).toEqual(["series"]);
+        harness.controller.onWindowClose();
+        expect(harness.view.clearBackdropCount).toBe(1);
+    });
+
+    test("does not treat an unrelated file named Jellyfin.png as the placeholder", () => {
+        const harness = createHarness();
+        harness.player.path = "/tmp/Jellyfin.png";
+
+        harness.controller.onFileLoaded();
+
+        expect(harness.view.showSidebarCount).toBe(0);
+        expect(harness.view.refreshSidebarCount).toBe(0);
+    });
+
     test("shows and executes skip actions at the segment boundary", async () => {
         const harness = createHarness();
         harness.api.segmentResults.push(Promise.resolve([{
@@ -285,6 +305,8 @@ class FakeView implements PlaybackView {
     shownSkipLabels: string[] = [];
     hideSkipCount = 0;
     skipHandler: (() => void) | null = null;
+    activeBackdropItems: string[] = [];
+    clearBackdropCount = 0;
 
     hideSidebar() { this.hideSidebarCount += 1; }
     showSidebar() { this.showSidebarCount += 1; }
@@ -293,6 +315,8 @@ class FakeView implements PlaybackView {
     showSkipButton(label: string) { this.shownSkipLabels.push(label); }
     hideSkipButton() { this.hideSkipCount += 1; }
     setSkipHandler(handler: () => void) { this.skipHandler = handler; }
+    setActiveBackdropItem(itemId: string) { this.activeBackdropItems.push(itemId); }
+    clearActiveBackdropItem() { this.clearBackdropCount += 1; }
 }
 
 function createHarness() {

@@ -71,6 +71,8 @@ export interface PlaybackView {
     showSkipButton(label: string): void;
     hideSkipButton(): void;
     setSkipHandler(handler: () => void): void;
+    setActiveBackdropItem(itemId: string): void;
+    clearActiveBackdropItem(): void;
 }
 
 export interface PlaybackLogger {
@@ -86,6 +88,7 @@ export interface PlaybackControllerConfig {
     playbackTickIntervalMs: number;
     eofWatchThresholdSeconds: number;
     skipSegmentPollIntervalMs: number;
+    isSplashPath(path: string): boolean;
 }
 
 export interface PlaybackControllerDependencies {

@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-    isBackdropPlaybackPaused,
+    isJellyfinSplashPath,
     isJellyfinSidebarOpen,
-    shouldShowBackdrop
+    resolveBackdropMode
 } from "./eligibility";
 
 describe("Jellyfin sidebar visibility", () => {
@@ -20,39 +20,69 @@ describe("Jellyfin sidebar visibility", () => {
     });
 });
 
-describe("backdrop playback state", () => {
-    test("treats paused video and the non-playing Jellyfin splash as paused", () => {
-        expect(isBackdropPlaybackPaused(true, "https://example.test/video.mp4")).toBe(true);
-        expect(isBackdropPlaybackPaused(
-            false,
-            "/Library/Application Support/IINA/Jellyfin.png"
+describe("Jellyfin splash path", () => {
+    const splashPath = "~/Library/Application Support/IINA/plugins/jellyfin/assets/Jellyfin.png";
+    const resolvedDevPath = "/Users/adela/Developer/jellyfin-iina/assets/Jellyfin.png";
+
+    test("matches only the configured placeholder", () => {
+        expect(isJellyfinSplashPath(
+            "/Users/adela/Library/Application Support/IINA/plugins/jellyfin/assets/Jellyfin.png",
+            [splashPath, resolvedDevPath]
         )).toBe(true);
-        expect(isBackdropPlaybackPaused(false, "https://example.test/video.mp4")).toBe(false);
+        expect(isJellyfinSplashPath(
+            "file:///Users/adela/Library/Application%20Support/IINA/plugins/jellyfin/assets/Jellyfin.png",
+            [splashPath, resolvedDevPath]
+        )).toBe(true);
+        expect(isJellyfinSplashPath(resolvedDevPath, [splashPath, resolvedDevPath])).toBe(true);
+        expect(isJellyfinSplashPath("/tmp/Jellyfin.png", [splashPath, resolvedDevPath])).toBe(false);
     });
 });
 
-describe("backdrop overlay eligibility", () => {
-    test("requires paused playback, the Jellyfin sidebar, and the preference", () => {
-        expect(shouldShowBackdrop({
-            playbackPaused: true,
-            jellyfinSidebarOpen: true,
-            previewsEnabled: true
-        })).toBe(true);
+describe("backdrop mode", () => {
+    const baseState = {
+        playbackPaused: false,
+        jellyfinPlaybackActive: false,
+        mediaPath: "https://example.test/video.mp4",
+        splashPaths: ["/plugin/assets/Jellyfin.png"],
+        jellyfinSidebarOpen: true,
+        previewsEnabled: true
+    };
 
-        expect(shouldShowBackdrop({
-            playbackPaused: false,
-            jellyfinSidebarOpen: true,
-            previewsEnabled: true
-        })).toBe(false);
-        expect(shouldShowBackdrop({
+    test("browses only over the configured placeholder", () => {
+        expect(resolveBackdropMode({
+            ...baseState,
+            mediaPath: "/plugin/assets/Jellyfin.png"
+        })).toBe("browse");
+        expect(resolveBackdropMode({
+            ...baseState,
+            mediaPath: "/tmp/Jellyfin.png"
+        })).toBe("hidden");
+    });
+
+    test("pauses only for active Jellyfin playback", () => {
+        expect(resolveBackdropMode({
+            ...baseState,
             playbackPaused: true,
-            jellyfinSidebarOpen: false,
-            previewsEnabled: true
-        })).toBe(false);
-        expect(shouldShowBackdrop({
+            jellyfinPlaybackActive: true
+        })).toBe("paused");
+        expect(resolveBackdropMode({
+            ...baseState,
+            playbackPaused: true
+        })).toBe("hidden");
+    });
+
+    test("requires the Jellyfin sidebar and preference", () => {
+        expect(resolveBackdropMode({
+            ...baseState,
+            mediaPath: "/plugin/assets/Jellyfin.png",
+            jellyfinSidebarOpen: false
+        })).toBe("hidden");
+        expect(resolveBackdropMode({
+            ...baseState,
             playbackPaused: true,
+            jellyfinPlaybackActive: true,
             jellyfinSidebarOpen: true,
             previewsEnabled: false
-        })).toBe(false);
+        })).toBe("hidden");
     });
 });

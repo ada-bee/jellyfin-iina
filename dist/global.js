@@ -39,6 +39,14 @@
 
   // src/jellyfin/version.ts
   var CLIENT_VERSION = Info_default.version;
+  // src/adapters/iina/constants.ts
+  var JELLYFIN_PRODUCTION_PLUGIN_ROOT = "~/Library/Application Support/com.colliderli.iina/plugins/xyz.brbc.jellyfin.iinaplugin";
+  var JELLYFIN_DEV_PLUGIN_ROOT = `${JELLYFIN_PRODUCTION_PLUGIN_ROOT}-dev`;
+  var JELLYFIN_SPLASH_URLS = [
+    `${JELLYFIN_PRODUCTION_PLUGIN_ROOT}/assets/Jellyfin.png`,
+    `${JELLYFIN_DEV_PLUGIN_ROOT}/assets/Jellyfin.png`
+  ];
+
   // src/adapters/iina/utils.ts
   function logDebug(...args) {
     if (DEBUG_LOGS) {

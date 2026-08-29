@@ -3480,11 +3480,15 @@
 
   // src/sidebar/runtime.ts
   function startSidebar() {
-    document.addEventListener("visibilitychange", () => {
+    const publishViewport = () => {
       iina.postMessage(MESSAGE_NAMES.SidebarVisibilityChanged, {
-        visible: !document.hidden
+        visible: !document.hidden,
+        viewportWidth: window.innerWidth
       });
-    });
+    };
+    document.addEventListener("visibilitychange", publishViewport);
+    window.addEventListener("resize", publishViewport, { passive: true });
+    publishViewport();
     initSidebar();
   }
 

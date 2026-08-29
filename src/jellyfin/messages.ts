@@ -41,6 +41,7 @@ export interface BackdropContextPayload {
 
 export interface SidebarVisibilityChangedPayload {
     visible: boolean;
+    viewportWidth: number;
 }
 
 export type RefreshSidebarPayload = EmptyPayload;
@@ -54,6 +55,7 @@ export interface OverlayBackdropsPayload {
     playlistUrls: string[];
     overrideUrl: string;
     eligible: boolean;
+    sidebarWidth: number;
 }
 
 export interface OverlaySkipButtonPayload {

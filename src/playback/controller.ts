@@ -86,7 +86,7 @@ export class PlaybackController {
             return;
         }
 
-        if (path.includes("Jellyfin.png")) {
+        if (this.dependencies.config.isSplashPath(path)) {
             this.dependencies.logger.debug("Jellyfin: Splash loaded, showing sidebar");
             this.clearPlaybackState("splash loaded");
             this.dependencies.view.showSidebar();
@@ -168,6 +168,7 @@ export class PlaybackController {
             segments: []
         };
         this.model.active = active;
+        this.dependencies.view.setActiveBackdropItem(session.seriesId || session.itemId);
         this.activateResume(active, pending.resumeSeconds);
         this.startPlaybackTick();
 
@@ -294,6 +295,7 @@ export class PlaybackController {
         }
         const positionTicks = currentPosition || active.lastKnownPositionTicks || 0;
         this.model.active = null;
+        this.dependencies.view.clearActiveBackdropItem();
         this.dependencies.logger.debug(`Jellyfin: Stopping playback (${reason})`);
         this.cancelResume();
         this.resetPlaybackRuntime();

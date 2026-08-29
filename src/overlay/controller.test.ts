@@ -41,6 +41,7 @@ class FakeView implements OverlayView {
     readonly displayed: string[] = [];
     readonly preloaded: string[] = [];
     readonly skipLabels: string[] = [];
+    readonly sidebarWidths: number[] = [];
     hiddenCount = 0;
     visibleCount = 0;
 
@@ -62,6 +63,10 @@ class FakeView implements OverlayView {
 
     setBackdropVisible(): void {
         this.visibleCount += 1;
+    }
+
+    setSidebarWidth(width: number): void {
+        this.sidebarWidths.push(width);
     }
 
     setSkipButton(label: string): void {
@@ -92,7 +97,9 @@ function setup() {
 describe("overlay controller", () => {
     test("cycles the eligible playlist and preloads the following image", () => {
         const { controller, scheduler, view } = setup();
-        controller.setBackdrops({ playlistUrls: ["one", "two"], overrideUrl: "", eligible: true });
+        controller.setBackdrops({
+            playlistUrls: ["one", "two"], overrideUrl: "", eligible: true, sidebarWidth: 360
+        });
 
         expect(view.loads.map(load => load.url)).toEqual(["one"]);
         view.succeed(0);
@@ -109,21 +116,29 @@ describe("overlay controller", () => {
 
     test("shows an override and advances the playlist when it ends", () => {
         const { controller, scheduler, view } = setup();
-        controller.setBackdrops({ playlistUrls: ["one", "two"], overrideUrl: "", eligible: true });
+        controller.setBackdrops({
+            playlistUrls: ["one", "two"], overrideUrl: "", eligible: true, sidebarWidth: 360
+        });
         view.succeed(0);
 
-        controller.setBackdrops({ playlistUrls: ["one", "two"], overrideUrl: "detail", eligible: true });
+        controller.setBackdrops({
+            playlistUrls: ["one", "two"], overrideUrl: "detail", eligible: true, sidebarWidth: 360
+        });
         expect(scheduler.timers.size).toBe(0);
         expect(view.loads.at(-1)?.url).toBe("detail");
         view.succeed(1);
 
-        controller.setBackdrops({ playlistUrls: ["one", "two"], overrideUrl: "", eligible: true });
+        controller.setBackdrops({
+            playlistUrls: ["one", "two"], overrideUrl: "", eligible: true, sidebarWidth: 360
+        });
         expect(view.loads.at(-1)?.url).toBe("two");
     });
 
     test("falls back through the playlist when an override or image fails", () => {
         const { controller, view } = setup();
-        controller.setBackdrops({ playlistUrls: ["one", "two"], overrideUrl: "detail", eligible: true });
+        controller.setBackdrops({
+            playlistUrls: ["one", "two"], overrideUrl: "detail", eligible: true, sidebarWidth: 360
+        });
 
         view.loads[0].failed();
         expect(view.loads.at(-1)?.url).toBe("one");
@@ -135,14 +150,31 @@ describe("overlay controller", () => {
 
     test("ignores stale image completion after becoming ineligible", () => {
         const { controller, scheduler, view } = setup();
-        controller.setBackdrops({ playlistUrls: ["one", "two"], overrideUrl: "", eligible: true });
-        controller.setBackdrops({ playlistUrls: ["one", "two"], overrideUrl: "", eligible: false });
+        controller.setBackdrops({
+            playlistUrls: ["one", "two"], overrideUrl: "", eligible: true, sidebarWidth: 360
+        });
+        controller.setBackdrops({
+            playlistUrls: ["one", "two"], overrideUrl: "", eligible: false, sidebarWidth: 360
+        });
 
         view.succeed(0);
         expect(view.displayed).toEqual([]);
         expect(view.visibleCount).toBe(0);
         expect(view.hiddenCount).toBe(1);
         expect(scheduler.timers.size).toBe(0);
+    });
+
+    test("updates sidebar layout without reloading the image", () => {
+        const { controller, view } = setup();
+        controller.setBackdrops({
+            playlistUrls: ["one"], overrideUrl: "", eligible: true, sidebarWidth: 360
+        });
+        controller.setBackdrops({
+            playlistUrls: ["one"], overrideUrl: "", eligible: true, sidebarWidth: 420
+        });
+
+        expect(view.sidebarWidths).toEqual([360, 420]);
+        expect(view.loads.map(load => load.url)).toEqual(["one"]);
     });
 
     test("owns skip label state and forwards skip requests", () => {

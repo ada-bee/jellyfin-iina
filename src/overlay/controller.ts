@@ -12,6 +12,7 @@ export interface OverlayView {
     loadBackdrop(url: string, onLoad: (backdrop: LoadedBackdrop) => void, onError: () => void): void;
     preloadBackdrop(url: string): void;
     setBackdropVisible(): void;
+    setSidebarWidth(width: number): void;
     setSkipButton(label: string): void;
 }
 
@@ -37,6 +38,7 @@ export function createOverlayController(options: OverlayControllerOptions): Over
     let playlistUrls: string[] = [];
     let overrideUrl = "";
     let eligible = false;
+    let sidebarWidth = 0;
     let currentPlaylistIndex = -1;
     let loadGeneration = 0;
     let slideshowTimer: unknown | null = null;
@@ -142,11 +144,15 @@ export function createOverlayController(options: OverlayControllerOptions): Over
         const nextPlaylistUrls = Array.from(new Set((payload?.playlistUrls || []).filter(Boolean)));
         const nextOverrideUrl = payload?.overrideUrl || "";
         const nextEligible = Boolean(payload?.eligible);
-        if (
-            arraysEqual(playlistUrls, nextPlaylistUrls) &&
+        const nextSidebarWidth = normalizeSidebarWidth(payload?.sidebarWidth);
+        const backdropsUnchanged = arraysEqual(playlistUrls, nextPlaylistUrls) &&
             overrideUrl === nextOverrideUrl &&
-            eligible === nextEligible
-        ) {
+            eligible === nextEligible;
+        if (sidebarWidth !== nextSidebarWidth) {
+            sidebarWidth = nextSidebarWidth;
+            options.view.setSidebarWidth(sidebarWidth);
+        }
+        if (backdropsUnchanged) {
             return;
         }
 
@@ -209,4 +215,8 @@ function resolvePlaylistIndex(currentIndex: number, playlistLength: number, adva
         return 0;
     }
     return advance ? (currentIndex + 1) % playlistLength : currentIndex;
+}
+
+function normalizeSidebarWidth(width: number | null | undefined): number {
+    return typeof width === "number" && Number.isFinite(width) ? Math.max(0, width) : 0;
 }
