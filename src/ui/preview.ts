@@ -23,6 +23,7 @@ import {
 } from "./render";
 import { state, type SearchFilter } from "./state";
 import { getDeviceId } from "./storage";
+import { setupSeasonMenu } from "./seasonMenu";
 
 type PreviewName = "home" | "search" | "movie" | "series" | "login" | "loading" | "empty" | "error";
 
@@ -99,13 +100,23 @@ function season(id: string, name: string, indexNumber: number): JellyfinBaseItem
 const upNextItems = [
     episode("the-plan", "The Plan", "North Station", 1, 5, 48, 63),
     episode("after-the-storm", "After the Storm", "Still Water", 2, 3, 54),
-    episode("the-long-way-home", "The Long Way Home", "Orbital", 1, 8, 42, 100)
+    episode("the-long-way-home", "The Long Way Home", "Orbital", 1, 8, 42, 100),
+    episode("the-crossing", "The Crossing", "Still Water", 2, 4, 49),
+    episode("signal-lost", "Signal Lost", "North Station", 1, 6, 47, 18),
+    episode("apogee", "Apogee", "Orbital", 2, 1, 45),
+    episode("undertow", "Undertow", "Still Water", 2, 5, 52),
+    episode("last-service", "Last Service", "North Station", 1, 7, 50)
 ];
 
 const recentMovies = [
     movie("signal-fire", "Signal Fire", 2025, 112),
     movie("quiet-city", "The Quiet City", 2024, 98, 24),
-    movie("night-train", "Night Train to Brno", 2026, 126)
+    movie("night-train", "Night Train to Brno", 2026, 126),
+    movie("glass-harbor", "Glass Harbor", 2025, 108),
+    movie("winter-orbit", "Winter Orbit", 2024, 117),
+    movie("second-sun", "The Second Sun", 2026, 103),
+    movie("low-tide", "Low Tide", 2025, 94),
+    movie("frequency", "Frequency", 2024, 101)
 ];
 
 const previewMovie: JellyfinBaseItem = {
@@ -118,7 +129,12 @@ const previewMovie: JellyfinBaseItem = {
 const recentEpisodes = [
     episode("open-water", "Open Water", "Still Water", 2, 2, 51),
     episode("arrival", "Arrival", "North Station", 1, 4, 46),
-    episode("relay", "Relay", "Orbital", 1, 7, 44)
+    episode("relay", "Relay", "Orbital", 1, 7, 44),
+    episode("the-crossing-new", "The Crossing", "Still Water", 2, 4, 49),
+    episode("signal-lost-new", "Signal Lost", "North Station", 1, 6, 47),
+    episode("apogee-new", "Apogee", "Orbital", 2, 1, 45),
+    episode("undertow-new", "Undertow", "Still Water", 2, 5, 52),
+    episode("last-service-new", "Last Service", "North Station", 1, 7, 50)
 ];
 
 const recentSeries = [
@@ -126,7 +142,10 @@ const recentSeries = [
     series("series-north-station", "North Station", 2025, 4, 10),
     series("series-orbital", "Orbital", 2024, 7, 8),
     series("series-quiet-city", "The Quiet City", 2024, 3, 8),
-    series("series-night-train", "Night Train", 2026, 1, 6)
+    series("series-night-train", "Night Train", 2026, 1, 6),
+    series("series-glass-harbor", "Glass Harbor", 2025, 3, 9),
+    series("series-second-sun", "The Second Sun", 2026, 2, 8),
+    series("series-low-tide", "Low Tide", 2025, 5, 7)
 ];
 
 const searchResults = [
@@ -141,7 +160,7 @@ const searchResults = [
 const seasons = [
     season("season-1", "Season 1", 1),
     season("season-2", "Season 2", 2),
-    season("season-3", "Season 3", 3),
+    season("season-3", "Season 3: The Very Long Winter Timetable", 3),
     season("season-specials", "Specials", 0)
 ];
 
@@ -277,8 +296,13 @@ interface LivePreviewSession {
 
 function setupFixturePreview(): void {
     setupNavigationScrollState();
+    setupSeasonMenu(seasonId => {
+        const seasonNumber = seasons.find(item => item.Id === seasonId)?.IndexNumber || 1;
+        const episodes = seasonEpisodes.map(item => ({ ...item, ParentIndexNumber: seasonNumber }));
+        state.currentSeries = { id: "series-north-station", name: "North Station", selectedSeasonId: seasonId };
+        renderSeriesEpisodes(seasons, seasonId, episodes, "ready");
+    });
     ui.backBtn.addEventListener("click", () => navigateToPreview("home"));
-    ui.sectionTitle.addEventListener("click", () => navigateToPreview("home"));
     ui.retryBtn.addEventListener("click", () => navigateToPreview("home"));
     ui.clearSearchButton.addEventListener("click", () => navigateToPreview("home"));
     ui.loginForm.addEventListener("submit", event => {
@@ -296,16 +320,6 @@ function setupFixturePreview(): void {
         if (isSearchFilter(filter)) {
             setSearchFilter(filter);
         }
-    });
-    ui.content.addEventListener("change", event => {
-        const select = (event.target as HTMLElement | null)?.closest<HTMLSelectElement>("[data-season-select]");
-        if (!select?.value) {
-            return;
-        }
-        const seasonNumber = seasons.find(item => item.Id === select.value)?.IndexNumber || 1;
-        const episodes = seasonEpisodes.map(item => ({ ...item, ParentIndexNumber: seasonNumber }));
-        state.currentSeries = { id: "series-north-station", name: "North Station", selectedSeasonId: select.value };
-        renderSeriesEpisodes(seasons, select.value, episodes, "ready");
     });
     ui.content.addEventListener("click", event => {
         const libraryLink = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>("[data-home-library]");

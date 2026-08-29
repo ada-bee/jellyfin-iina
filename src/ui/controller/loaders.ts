@@ -33,6 +33,7 @@ import { log } from "../utils";
 
 let viewRequestId = 0;
 const LIBRARY_PAGE_SIZE = 60;
+const HOME_SECTION_ITEM_LIMIT = 8;
 const homeViewCache = new Map<string, HomeViewData>();
 const libraryViewCache = new Map<string, LibraryState>();
 const movieDetailsCache = new Map<string, JellyfinBaseItem>();
@@ -474,10 +475,10 @@ export async function loadHome(forceReload: boolean = false): Promise<void> {
 
     try {
         const [continueWatchingItems, newestEpisodes, recentMovies, recentSeries] = await Promise.all([
-            loadHomeItems(5),
-            loadLatestItems("Episode", 5),
-            loadLatestItems("Movie", 5),
-            loadSeriesWithNewestSeasons(5)
+            loadHomeItems(),
+            loadLatestItems("Episode", HOME_SECTION_ITEM_LIMIT),
+            loadLatestItems("Movie", HOME_SECTION_ITEM_LIMIT),
+            loadSeriesWithNewestSeasons(HOME_SECTION_ITEM_LIMIT)
         ]);
         if (requestId !== viewRequestId) {
             return;
@@ -510,7 +511,7 @@ function getSeriesDetailsCacheKey(seriesId: string): string {
     return `${getSessionCacheKey()}\u0000series\u0000${seriesId}`;
 }
 
-async function loadHomeItems(limit: number = 5): Promise<JellyfinBaseItem[]> {
+async function loadHomeItems(limit: number = HOME_SECTION_ITEM_LIMIT): Promise<JellyfinBaseItem[]> {
     const resumeItems = await loadResumeItems();
     const nextUpItems = await loadNextUpItems();
     const combined = mergeItems(resumeItems, nextUpItems);

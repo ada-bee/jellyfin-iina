@@ -40,7 +40,7 @@ body {
 .backdrop-dimmer {
     position: absolute;
     inset: 0;
-    background: rgba(0, 0, 0, 0.42);
+    background: rgba(0, 0, 0, 0.56);
 }
 
 #skip-button {

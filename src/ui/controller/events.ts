@@ -3,6 +3,7 @@ import { cancelScheduledBackdropPreview, scheduleBackdropPreview } from "../back
 import { findListCard, getCardContext, handleContentError, setSearchFilter } from "../render";
 import { state, type SearchFilter } from "../state";
 import { playItem } from "../playback";
+import { setupSeasonMenu } from "../seasonMenu";
 import {
     handleBack,
     handleClearSearch,
@@ -21,11 +22,13 @@ import {
     selectSeriesSeason
 } from "./loaders";
 
+let scrollStateObserver: ResizeObserver | null = null;
+
 export function setupEventListeners(): void {
     setupNavigationScrollState();
+    setupSeasonMenu(seasonId => void selectSeriesSeason(seasonId));
     ui.loginForm.addEventListener("submit", handleLogin);
     ui.backBtn.addEventListener("click", handleBack);
-    ui.sectionTitle.addEventListener("click", handleBack);
     ui.retryBtn.addEventListener("click", handleRetry);
     ui.searchFilters.addEventListener("click", handleSearchFilterClick);
     ui.searchInput.addEventListener("input", handleSearchInput);
@@ -39,7 +42,6 @@ export function setupEventListeners(): void {
     });
     ui.clearSearchButton.addEventListener("click", handleClearSearch);
     ui.content.addEventListener("click", handleContentClick);
-    ui.content.addEventListener("change", handleContentChange);
     ui.content.addEventListener("keydown", handleContentKeydown);
     ui.content.addEventListener("pointerover", handleContentPointerOver);
     ui.content.addEventListener("pointerout", handleContentPointerOut);
@@ -82,10 +84,21 @@ function handleContentFocusOut(event: FocusEvent): void {
 }
 
 export function setupNavigationScrollState(): void {
+    if (scrollStateObserver) {
+        return;
+    }
     const updateScrollState = () => {
         ui.navigationLayer.classList.toggle("navigation-layer--scrolled", window.scrollY > 0);
+        const pageOverflows = document.documentElement.scrollHeight > window.innerHeight + 1;
+        const contentOverflows = ui.content.scrollHeight > ui.content.clientHeight + 1;
+        const hasVerticalOverflow = pageOverflows || contentOverflows;
+        ui.bottomSearchLayer.classList.toggle("bottom-search-layer--elevated", hasVerticalOverflow);
     };
     window.addEventListener("scroll", updateScrollState, { passive: true });
+    window.addEventListener("resize", updateScrollState, { passive: true });
+    scrollStateObserver = new ResizeObserver(updateScrollState);
+    scrollStateObserver.observe(document.body);
+    scrollStateObserver.observe(ui.content);
     updateScrollState();
 }
 
@@ -129,13 +142,6 @@ function handleContentClick(event: MouseEvent): void {
     }
 
     handleListCardSelection(card);
-}
-
-function handleContentChange(event: Event): void {
-    const select = (event.target as HTMLElement | null)?.closest<HTMLSelectElement>("[data-season-select]");
-    if (select?.value) {
-        void selectSeriesSeason(select.value);
-    }
 }
 
 function handleSearchFilterClick(event: MouseEvent): void {

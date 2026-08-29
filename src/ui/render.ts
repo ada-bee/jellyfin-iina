@@ -3,6 +3,7 @@ import type { JellyfinBaseItem } from "../shared/jellyfin";
 import { TICKS_PER_MINUTE } from "./constants";
 import { ui } from "./dom";
 import { buildJellyfinImageUrl } from "./images";
+import { scheduleSeasonMenuLabelUpdate } from "./seasonMenu";
 import { state, type SearchFilter } from "./state";
 import { formatPaddedEpisodeNumber, formatRuntime } from "./utils";
 
@@ -80,7 +81,8 @@ export function showError(message: string): void {
 
 export function updateTitle(title: string): void {
     ui.sectionTitle.textContent = title;
-    ui.sectionTitle.setAttribute("aria-label", `Back from ${title}`);
+    ui.backBtn.setAttribute("aria-label", `Back from ${title}`);
+    ui.backBtn.title = `Back from ${title}`;
 
     const showHome = title === "Home" && state.breadcrumb.length === 0 && !state.searchQuery;
     const showSearchFilters = title === "Search Results" && Boolean(state.searchQuery);
@@ -231,6 +233,7 @@ export function renderHomeSections(
             row.className = "home-media-row";
             row.setAttribute("aria-label", title);
             items.forEach(item => row.appendChild(buildListCardElement(item, options)));
+            installHorizontalDrag(row);
             row.addEventListener("scroll", () => updateHomeRailShadow(row), { passive: true });
             const previous = buildHomeRailButton(row, title, -1);
             const next = buildHomeRailButton(row, title, 1);
@@ -285,6 +288,76 @@ function buildHomeRailButton(row: HTMLElement, sectionTitle: string, direction: 
         });
     });
     return button;
+}
+
+function installHorizontalDrag(row: HTMLElement): void {
+    let pointerId: number | null = null;
+    let startX = 0;
+    let startScrollLeft = 0;
+    let dragging = false;
+    let suppressClick = false;
+
+    row.addEventListener("pointerdown", event => {
+        if (
+            event.pointerType !== "mouse" ||
+            event.button !== 0 ||
+            pointerId !== null ||
+            row.scrollWidth <= row.clientWidth + 1
+        ) {
+            return;
+        }
+        pointerId = event.pointerId;
+        startX = event.clientX;
+        startScrollLeft = row.scrollLeft;
+    });
+    row.addEventListener("pointermove", event => {
+        if (pointerId !== event.pointerId) {
+            return;
+        }
+        const distance = event.clientX - startX;
+        if (!dragging && Math.abs(distance) < 5) {
+            return;
+        }
+        if (!dragging) {
+            dragging = true;
+            row.classList.add("home-media-row--dragging");
+            row.setPointerCapture(event.pointerId);
+        }
+        event.preventDefault();
+        row.scrollLeft = startScrollLeft - distance;
+    });
+    row.addEventListener("pointerleave", () => {
+        if (!dragging) {
+            pointerId = null;
+        }
+    });
+    const finishDrag = (event: PointerEvent) => {
+        if (pointerId !== event.pointerId) {
+            return;
+        }
+        pointerId = null;
+        if (!dragging) {
+            return;
+        }
+        dragging = false;
+        suppressClick = true;
+        row.classList.remove("home-media-row--dragging");
+        if (row.hasPointerCapture(event.pointerId)) {
+            row.releasePointerCapture(event.pointerId);
+        }
+        window.setTimeout(() => {
+            suppressClick = false;
+        }, 0);
+    };
+    row.addEventListener("pointerup", finishDrag);
+    row.addEventListener("pointercancel", finishDrag);
+    row.addEventListener("click", event => {
+        if (suppressClick) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+        }
+    }, true);
+    row.addEventListener("dragstart", event => event.preventDefault());
 }
 
 function installHomeRailResizeHandler(): void {
@@ -343,6 +416,7 @@ export function renderSeriesDetails(
     details.classList.add("series-details");
     details.appendChild(buildSeriesEpisodesSection(seasons, selectedSeasonId, episodes, episodeLoadState));
     replaceContent(details);
+    scheduleSeasonMenuLabelUpdate();
 }
 
 export function renderSeriesEpisodes(
@@ -361,6 +435,7 @@ export function renderSeriesEpisodes(
         episodes,
         episodeLoadState
     ));
+    scheduleSeasonMenuLabelUpdate();
     return true;
 }
 
@@ -432,10 +507,24 @@ function renderFilteredSearchResults(): void {
         return;
     }
 
-    const list = document.createElement("div");
-    list.className = "media-list";
-    visibleItems.forEach(item => list.appendChild(buildListCardElement(item, getSearchCardOptions(item))));
-    replaceContent(list);
+    const results = document.createElement("div");
+    results.className = "search-results";
+    const posterItems = visibleItems.filter(item => item.Type === "Movie" || item.Type === "Series");
+    const remainingItems = visibleItems.filter(item => item.Type !== "Movie" && item.Type !== "Series");
+    if (posterItems.length > 0) {
+        results.appendChild(buildSearchResultGroup(posterItems, "library-poster-grid"));
+    }
+    if (remainingItems.length > 0) {
+        results.appendChild(buildSearchResultGroup(remainingItems, "media-list"));
+    }
+    replaceContent(results);
+}
+
+function buildSearchResultGroup(items: JellyfinBaseItem[], className: string): HTMLElement {
+    const group = document.createElement("div");
+    group.className = className;
+    items.forEach(item => group.appendChild(buildListCardElement(item, getSearchCardOptions(item))));
+    return group;
 }
 
 function buildMediaList(items: JellyfinBaseItem[], options: ListCardOptions): HTMLElement {
@@ -571,17 +660,42 @@ function buildSeriesEpisodesSection(
         controls.className = "series-episodes-controls";
         const selector = document.createElement("div");
         selector.className = "season-selector";
-        const select = document.createElement("select");
-        select.dataset.seasonSelect = "";
-        select.setAttribute("aria-label", "Season");
+        selector.dataset.seasonSelector = "";
+        const selectedSeason = seasons.find(season => season.Id === selectedSeasonId) || seasons[0];
+        const trigger = document.createElement("button");
+        trigger.className = "season-selector-trigger";
+        trigger.type = "button";
+        trigger.dataset.seasonMenuTrigger = "";
+        trigger.setAttribute("data-clickable", "");
+        trigger.setAttribute("aria-label", `Choose season, selected ${String(selectedSeason?.Name || "Season")}`);
+        trigger.setAttribute("aria-haspopup", "listbox");
+        trigger.setAttribute("aria-expanded", "false");
+        trigger.setAttribute("aria-controls", "season-selector-menu");
+        const label = document.createElement("span");
+        label.className = "season-selector-label";
+        label.dataset.seasonMenuLabel = "";
+        label.textContent = String(selectedSeason?.Name || "Season");
+        trigger.append(label, buildDisclosureChevron());
+
+        const menu = document.createElement("div");
+        menu.id = "season-selector-menu";
+        menu.className = "season-selector-menu hidden";
+        menu.dataset.seasonMenu = "";
+        menu.setAttribute("role", "listbox");
+        menu.setAttribute("aria-label", "Season");
         seasons.forEach(season => {
-            const option = document.createElement("option");
-            option.value = season.Id || "";
+            const option = document.createElement("button");
+            option.className = "season-selector-option";
+            option.type = "button";
+            option.dataset.seasonOption = season.Id || "";
+            option.setAttribute("data-clickable", "");
+            option.setAttribute("role", "option");
+            option.setAttribute("aria-selected", String(season.Id === selectedSeason?.Id));
+            option.tabIndex = -1;
             option.textContent = String(season.Name || "Season");
-            option.selected = option.value === selectedSeasonId;
-            select.appendChild(option);
+            menu.appendChild(option);
         });
-        selector.appendChild(select);
+        selector.append(trigger, menu);
         controls.appendChild(selector);
         section.appendChild(controls);
     }
@@ -926,9 +1040,12 @@ function buildFeedbackState(titleText: string, detailText: string): HTMLElement 
 
     const title = document.createElement("h3");
     title.textContent = titleText;
-    const detail = document.createElement("p");
-    detail.textContent = detailText;
-    feedback.append(icon, title, detail);
+    feedback.append(icon, title);
+    if (detailText) {
+        const detail = document.createElement("p");
+        detail.textContent = detailText;
+        feedback.appendChild(detail);
+    }
     return feedback;
 }
 
@@ -1053,8 +1170,8 @@ function getSearchCardOptions(item: JellyfinBaseItem): ListCardOptions {
     if (item.Type === "Episode") {
         return { showSeriesName: true, showEpisodeNumber: true, useEpisodeThumbnail: true };
     }
-    if (item.Type === "Series") {
-        return { showSeriesName: false, showSeriesEpisodeCounts: true };
+    if (item.Type === "Movie" || item.Type === "Series") {
+        return getLibraryPosterOptions();
     }
     return { showSeriesName: false };
 }
@@ -1080,7 +1197,7 @@ function handleImageFallback(image: HTMLImageElement): void {
 function getEmptyStateDetail(message: string): string {
     return message.toLowerCase().includes("result")
         ? "Try a different title or change the filter."
-        : "New items will appear here when they’re available.";
+        : "";
 }
 
 function getHomeEmptyDetail(section: HomeSectionId): string {

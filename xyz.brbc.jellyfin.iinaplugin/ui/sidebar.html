@@ -43,8 +43,8 @@
                     <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
                         <path d="m11.5 3.5-5 5.5 5 5.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
                     </svg>
+                    <span id="section-title"></span>
                 </button>
-                <h2><button id="section-title" class="section-title-button" data-clickable type="button"></button></h2>
             </div>
         </nav>
 
@@ -65,7 +65,7 @@
             <button id="retry-btn" class="btn-secondary" data-clickable type="button">Try Again</button>
         </div>
 
-        <div class="bottom-search-layer">
+        <div id="bottom-search-layer" class="bottom-search-layer">
             <div id="search-filters" class="scope-control hidden" role="group" aria-label="Filter results">
                 <button type="button" data-search-filter="all" aria-pressed="true">All</button>
                 <button type="button" data-search-filter="movie" aria-pressed="false">Movies</button>
@@ -77,11 +77,11 @@
                     <circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.5"/>
                     <path d="m10.5 10.5 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                 </svg>
-                <input type="search" id="search-input" aria-label="Search" placeholder="Series, Movies, and More" autocomplete="off" spellcheck="false">
+                <input type="search" id="search-input" aria-label="Search" placeholder="Search ..." autocomplete="off" spellcheck="false">
                 <button id="clear-search" class="clear-search hidden" data-clickable type="button" title="Clear search" aria-label="Clear search">
-                    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
-                        <circle cx="7" cy="7" r="6" fill="currentColor" opacity=".28"/>
-                        <path d="m5 5 4 4m0-4L5 9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                    <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+                        <circle cx="9" cy="9" r="8" fill="currentColor" opacity=".28"/>
+                        <path d="m6.5 6.5 5 5m0-5-5 5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
                     </svg>
                 </button>
             </div>
