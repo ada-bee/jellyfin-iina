@@ -1,42 +1,61 @@
-import type { AuthUpdatedPayload, PlayItemPayload, PreviewBackdropsPayload } from "../shared/messages";
+import type {
+    AuthUpdatedPayload,
+    BackdropContextPayload,
+    PlayItemPayload,
+    SidebarVisibilityChangedPayload
+} from "../shared/messages";
 
 import { MESSAGE_NAMES } from "../shared/messages";
 import {
+    isBackdropPlaybackPaused,
+    isJellyfinSidebarOpen,
+    shouldShowBackdrop
+} from "./backdropEligibility";
+import {
     BACKDROP_PREVIEWS_PREF_KEY,
+    JELLYFIN_SPLASH_URL,
     PREFER_EPISODE_IMAGES_IN_NEXT_UP_PREF_KEY,
     SHOW_SIDEBAR_DELAY_MS
 } from "./constants";
 import { handlePlayItem, initializePlaybackHandlers } from "./playback";
 import {
-    clearBackdropPreview,
+    clearBackdropContext,
     initializeMediaOverlay,
     loadMediaOverlay,
-    previewBackdrops
+    refreshMediaOverlay,
+    setBackdropContext,
+    setBackdropEligibility
 } from "./mediaOverlay";
 import { clearAuthState, updateAuthState } from "./state";
+import { shouldOpenJellyfinSplash } from "./sidebarLaunch";
 import { isHttpsUrl, logDebug, normalizeServerUrl } from "./utils";
 
-const { console, event, global, preferences, sidebar, utils } = iina;
+const { console, core, event, menu, mpv, preferences, sidebar, utils } = iina;
+
+const SIDEBAR_VISIBILITY_POLL_MS = 200;
 
 logDebug("Jellyfin: Plugin loaded");
 
 let windowReady = false;
+let windowClosed = false;
 let pendingShowSidebar = false;
 let sidebarVisible = false;
+let backdropPreviewsEnabled = true;
+let sidebarVisibilityTimer: ReturnType<typeof setInterval> | null = null;
 
 function getSidebarVisibility(): boolean {
     const sidebarWithVisibility = sidebar as typeof sidebar & { isVisible?: () => boolean };
-    if (typeof sidebarWithVisibility.isVisible === "function") {
-        return sidebarWithVisibility.isVisible();
-    }
+    const trackedOpen = typeof sidebarWithVisibility.isVisible === "function"
+        ? sidebarWithVisibility.isVisible()
+        : sidebarVisible;
 
-    return sidebarVisible;
+    return isJellyfinSidebarOpen(core.window.sidebar, trackedOpen);
 }
 
 function showSidebarWithNotification(): void {
     sidebar.show();
     sidebarVisible = true;
-    global.postMessage("sidebarShown", {});
+    syncBackdropEligibility();
 }
 
 function showSidebarWithDelay(): void {
@@ -48,7 +67,7 @@ function showSidebarWithDelay(): void {
 function hideSidebar(): void {
     sidebar.hide();
     sidebarVisible = false;
-    clearBackdropPreview();
+    syncBackdropEligibility();
 }
 
 function showHttpsAlert(): void {
@@ -70,14 +89,49 @@ function getBackdropPreviewsEnabled(): boolean {
 
 function postSidebarPreferences(): void {
     sidebar.postMessage(MESSAGE_NAMES.SidebarPreferences, {
-        backdropPreviewsEnabled: getBackdropPreviewsEnabled(),
+        backdropPreviewsEnabled,
         preferEpisodeImagesInNextUp: getPreferEpisodeImagesInNextUp()
     });
+}
+
+function syncBackdropEligibility(): void {
+    if (!windowReady) {
+        setBackdropEligibility(false);
+        return;
+    }
+    setBackdropEligibility(shouldShowBackdrop({
+        playbackPaused: isBackdropPlaybackPaused(mpv.getFlag("pause"), mpv.getString("path")),
+        jellyfinSidebarOpen: getSidebarVisibility(),
+        previewsEnabled: backdropPreviewsEnabled
+    }));
+}
+
+function startSidebarVisibilityPolling(): void {
+    if (sidebarVisibilityTimer) {
+        return;
+    }
+    sidebarVisibilityTimer = setInterval(syncBackdropEligibility, SIDEBAR_VISIBILITY_POLL_MS);
+}
+
+function stopSidebarVisibilityPolling(): void {
+    if (!sidebarVisibilityTimer) {
+        return;
+    }
+    clearInterval(sidebarVisibilityTimer);
+    sidebarVisibilityTimer = null;
 }
 
 function toggleSidebarFromHotkey(): void {
     if (!windowReady) {
         pendingShowSidebar = true;
+        if (shouldOpenJellyfinSplash({
+            windowReady,
+            windowClosed,
+            windowLoaded: core.window.loaded,
+            mediaPath: mpv.getString("path")
+        })) {
+            core.open(JELLYFIN_SPLASH_URL);
+        }
         return;
     }
 
@@ -90,12 +144,18 @@ function toggleSidebarFromHotkey(): void {
     showSidebarWithDelay();
 }
 
-global.onMessage("showJellyfinSidebar", () => {
-    logDebug("Jellyfin: Received showJellyfinSidebar message");
-    toggleSidebarFromHotkey();
-});
+menu.addItem(menu.item("Jellyfin", toggleSidebarFromHotkey, { keyBinding: "Shift+J" }));
 
 initializeMediaOverlay();
+
+event.on("mpv.pause.changed", syncBackdropEligibility);
+event.on("iina.window-will-close", () => {
+    stopSidebarVisibilityPolling();
+    windowReady = false;
+    windowClosed = true;
+    sidebarVisible = false;
+    syncBackdropEligibility();
+});
 
 initializePlaybackHandlers({
     showSidebar: showSidebarWithNotification,
@@ -107,6 +167,8 @@ initializePlaybackHandlers({
 event.on("iina.window-loaded", () => {
     logDebug("Jellyfin: Window loaded");
 
+    windowClosed = false;
+    backdropPreviewsEnabled = getBackdropPreviewsEnabled();
     loadMediaOverlay();
     sidebar.loadFile("ui/sidebar.html");
 
@@ -118,16 +180,17 @@ event.on("iina.window-loaded", () => {
         });
     });
 
-    sidebar.onMessage(MESSAGE_NAMES.PreviewBackdrops, (data: PreviewBackdropsPayload) => {
-        if (!getBackdropPreviewsEnabled()) {
-            clearBackdropPreview();
-            return;
-        }
-        if (!getSidebarVisibility()) {
-            return;
-        }
-        previewBackdrops(data);
+    sidebar.onMessage(MESSAGE_NAMES.BackdropContext, (data: BackdropContextPayload) => {
+        setBackdropContext(data);
     });
+
+    sidebar.onMessage(
+        MESSAGE_NAMES.SidebarVisibilityChanged,
+        (data: SidebarVisibilityChangedPayload) => {
+            sidebarVisible = Boolean(data?.visible);
+            syncBackdropEligibility();
+        }
+    );
 
     sidebar.onMessage(MESSAGE_NAMES.AuthUpdated, (data: AuthUpdatedPayload) => {
         if (!data || !data.serverUrl) {
@@ -142,17 +205,18 @@ event.on("iina.window-loaded", () => {
             ...data,
             serverUrl: normalizedUrl
         });
+        refreshMediaOverlay();
         postSidebarPreferences();
     });
 
     sidebar.onMessage(MESSAGE_NAMES.AuthCleared, () => {
-        clearBackdropPreview();
+        clearBackdropContext();
         clearAuthState();
     });
 
     windowReady = true;
-
-    global.postMessage("playerReady", {});
+    startSidebarVisibilityPolling();
+    syncBackdropEligibility();
 
     if (pendingShowSidebar) {
         logDebug("Jellyfin: Showing sidebar (pending request)");

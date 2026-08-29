@@ -1,7 +1,11 @@
 import type { JellyfinBaseItem } from "../shared/jellyfin";
 
 import { ui } from "./dom";
-import { setupEventListeners, setupNavigationScrollState } from "./controller/events";
+import {
+    setupBackdropInteractionListeners,
+    setupEventListeners,
+    setupNavigationScrollState
+} from "./controller/events";
 import { loadHome } from "./controller/loaders";
 import {
     findListCard,
@@ -296,6 +300,7 @@ interface LivePreviewSession {
 
 function setupFixturePreview(): void {
     setupNavigationScrollState();
+    setupBackdropInteractionListeners();
     setupSeasonMenu(seasonId => {
         const seasonNumber = seasons.find(item => item.Id === seasonId)?.IndexNumber || 1;
         const episodes = seasonEpisodes.map(item => ({ ...item, ParentIndexNumber: seasonNumber }));
@@ -361,10 +366,16 @@ function setupFixturePreview(): void {
 }
 
 function installIinaStub(): void {
+    const previewWindow = window as Window & {
+        __iinaPreviewMessages?: Array<{ name: string; data: unknown }>;
+    };
+    previewWindow.__iinaPreviewMessages = [];
     Object.defineProperty(window, "iina", {
         configurable: true,
         value: {
-            postMessage: () => undefined,
+            postMessage: (name: string, data: unknown) => {
+                previewWindow.__iinaPreviewMessages?.push({ name, data });
+            },
             onMessage: () => undefined
         }
     });
@@ -406,6 +417,7 @@ function setupLivePreview(): void {
 if (new URLSearchParams(window.location.search).get("source") === "live") {
     setupLivePreview();
 } else {
+    installIinaStub();
     setupFixturePreview();
 }
 

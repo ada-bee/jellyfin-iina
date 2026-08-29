@@ -1,5 +1,6 @@
 import type { JellyfinBaseItem } from "../shared/jellyfin";
 
+import { clearBackdropContext, setBackdropDetail, setBackdropSlideshow } from "./backdropContext";
 import { TICKS_PER_MINUTE } from "./constants";
 import { ui } from "./dom";
 import { buildJellyfinImageUrl } from "./images";
@@ -46,6 +47,7 @@ let libraryGridObserver: IntersectionObserver | null = null;
 let libraryGridLoadMore: (() => void) | null = null;
 
 export function showLoginView(): void {
+    clearBackdropContext();
     ui.loginView.classList.remove("hidden");
     ui.browseView.classList.add("hidden");
 }
@@ -99,6 +101,7 @@ export function updateTitle(title: string): void {
 
 export function renderListCards(items: JellyfinBaseItem[], options: ListCardOptions = {}): void {
     replaceContent(buildMediaList(items, options));
+    setBackdropSlideshow(items);
 }
 
 export function renderLibraryGrid(
@@ -112,6 +115,7 @@ export function renderLibraryGrid(
     items.forEach(item => grid.appendChild(buildListCardElement(item, getLibraryPosterOptions())));
 
     replaceContent(grid);
+    setBackdropSlideshow(items);
     libraryGridLoadMore = onLoadMore;
     ui.content.classList.add("library-content");
     updateLibraryLoadStatus(hasMore);
@@ -252,6 +256,12 @@ export function renderHomeSections(
     });
 
     replaceContent(home);
+    setBackdropSlideshow([
+        ...continueWatchingItems,
+        ...newestEpisodes,
+        ...recentMovies,
+        ...recentSeries
+    ]);
     installHomeRailResizeHandler();
     requestAnimationFrame(updateAllHomeRailShadows);
 }
@@ -396,6 +406,7 @@ export function renderMovieDetails(item: JellyfinBaseItem): void {
     const details = buildMediaDetails(item, getMediaDetailMetadata(item), item);
     details.classList.add("movie-details");
     replaceContent(details);
+    setBackdropDetail(item);
 }
 
 export function renderSeriesDetails(
@@ -416,6 +427,7 @@ export function renderSeriesDetails(
     details.classList.add("series-details");
     details.appendChild(buildSeriesEpisodesSection(seasons, selectedSeasonId, episodes, episodeLoadState));
     replaceContent(details);
+    setBackdropDetail(item);
     scheduleSeasonMenuLabelUpdate();
 }
 
@@ -518,6 +530,7 @@ function renderFilteredSearchResults(): void {
         results.appendChild(buildSearchResultGroup(remainingItems, "media-list"));
     }
     replaceContent(results);
+    setBackdropSlideshow(visibleItems);
 }
 
 function buildSearchResultGroup(items: JellyfinBaseItem[], className: string): HTMLElement {

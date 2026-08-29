@@ -4,7 +4,8 @@ export const MESSAGE_NAMES = {
     AuthUpdated: "authUpdated",
     AuthCleared: "authCleared",
     PlayItem: "playItem",
-    PreviewBackdrops: "previewBackdrops",
+    BackdropContext: "backdropContext",
+    SidebarVisibilityChanged: "sidebarVisibilityChanged",
     RefreshSidebar: "refreshSidebar",
     SidebarPreferences: "sidebarPreferences",
     OverlayBackdrops: "overlayBackdrops",
@@ -33,9 +34,13 @@ export interface PlayItemPayload {
     title?: string;
 }
 
-export interface PreviewBackdropsPayload {
-    itemId: string;
-    backdropTags: string[];
+export interface BackdropContextPayload {
+    itemIds: string[];
+    overrideItemId: string;
+}
+
+export interface SidebarVisibilityChangedPayload {
+    visible: boolean;
 }
 
 export type RefreshSidebarPayload = EmptyPayload;
@@ -46,7 +51,9 @@ export interface SidebarPreferencesPayload {
 }
 
 export interface OverlayBackdropsPayload {
-    urls: string[];
+    playlistUrls: string[];
+    overrideUrl: string;
+    eligible: boolean;
 }
 
 export interface OverlaySkipButtonPayload {
@@ -59,7 +66,8 @@ export interface UiToPluginMessagePayloads {
     authUpdated: AuthUpdatedPayload;
     authCleared: AuthClearedPayload;
     playItem: PlayItemPayload;
-    previewBackdrops: PreviewBackdropsPayload;
+    backdropContext: BackdropContextPayload;
+    sidebarVisibilityChanged: SidebarVisibilityChangedPayload;
     skipSegment: SkipSegmentPayload;
 }
 

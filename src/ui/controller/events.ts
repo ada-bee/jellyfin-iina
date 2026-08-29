@@ -1,5 +1,5 @@
 import { ui } from "../dom";
-import { cancelScheduledBackdropPreview, scheduleBackdropPreview } from "../backdropPreview";
+import { setFocusedBackdropCard, setHoveredBackdropCard } from "../backdropContext";
 import { findListCard, getCardContext, handleContentError, setSearchFilter } from "../render";
 import { state, type SearchFilter } from "../state";
 import { playItem } from "../playback";
@@ -23,10 +23,12 @@ import {
 } from "./loaders";
 
 let scrollStateObserver: ResizeObserver | null = null;
+let backdropInteractionListenersInstalled = false;
 const NAVIGATION_ELEVATION_DISTANCE = 24;
 
 export function setupEventListeners(): void {
     setupNavigationScrollState();
+    setupBackdropInteractionListeners();
     setupSeasonMenu(seasonId => void selectSeriesSeason(seasonId));
     ui.loginForm.addEventListener("submit", handleLogin);
     ui.backBtn.addEventListener("click", handleBack);
@@ -44,18 +46,25 @@ export function setupEventListeners(): void {
     ui.clearSearchButton.addEventListener("click", handleClearSearch);
     ui.content.addEventListener("click", handleContentClick);
     ui.content.addEventListener("keydown", handleContentKeydown);
+    ui.content.addEventListener("error", handleContentError, true);
+}
+
+export function setupBackdropInteractionListeners(): void {
+    if (backdropInteractionListenersInstalled) {
+        return;
+    }
+    backdropInteractionListenersInstalled = true;
     ui.content.addEventListener("pointerover", handleContentPointerOver);
     ui.content.addEventListener("pointerout", handleContentPointerOut);
     ui.content.addEventListener("focusin", handleContentFocusIn);
     ui.content.addEventListener("focusout", handleContentFocusOut);
-    ui.content.addEventListener("error", handleContentError, true);
 }
 
 function handleContentPointerOut(event: PointerEvent): void {
     const card = findListCard(event.target);
     const nextCard = findListCard(event.relatedTarget);
     if (card && card !== nextCard) {
-        cancelScheduledBackdropPreview();
+        setHoveredBackdropCard(nextCard);
     }
 }
 
@@ -65,7 +74,7 @@ function handleContentPointerOver(event: PointerEvent): void {
     if (!card || card === previousCard || !ui.content.contains(card)) {
         return;
     }
-    scheduleBackdropPreview(card);
+    setHoveredBackdropCard(card);
 }
 
 function handleContentFocusIn(event: FocusEvent): void {
@@ -73,14 +82,14 @@ function handleContentFocusIn(event: FocusEvent): void {
     if (!card || !ui.content.contains(card)) {
         return;
     }
-    scheduleBackdropPreview(card);
+    setFocusedBackdropCard(card);
 }
 
 function handleContentFocusOut(event: FocusEvent): void {
     const card = findListCard(event.target);
     const nextCard = findListCard(event.relatedTarget);
     if (card && card !== nextCard) {
-        cancelScheduledBackdropPreview();
+        setFocusedBackdropCard(nextCard);
     }
 }
 

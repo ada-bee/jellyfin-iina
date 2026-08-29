@@ -4,7 +4,6 @@ import type {
     BaseItemDtoQueryResult,
     BaseItemKind,
     DeviceProfile,
-    ImageInfo,
     MediaSegmentDto,
     MediaSegmentDtoQueryResult,
     MediaSourceInfo,
@@ -24,7 +23,6 @@ export type JellyfinBaseItem = BaseItemDto;
 export type JellyfinBaseItemKind = BaseItemKind;
 export type JellyfinBaseItemQuery = BaseItemDtoQueryResult;
 export type JellyfinDeviceProfile = DeviceProfile;
-export type JellyfinImageInfo = ImageInfo;
 export type JellyfinMediaSegment = MediaSegmentDto;
 export type JellyfinMediaSegmentQuery = MediaSegmentDtoQueryResult;
 export type JellyfinMediaSourceInfo = MediaSourceInfo;

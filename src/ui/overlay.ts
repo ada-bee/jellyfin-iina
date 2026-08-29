@@ -1,24 +1,29 @@
 import type { OverlayBackdropsPayload, OverlaySkipButtonPayload } from "../shared/messages";
 
 import { MESSAGE_NAMES } from "../shared/messages";
+import { resolvePlaylistIndex } from "./backdropSlideshow";
 
-const SLIDESHOW_INTERVAL_MS = 10000;
+const SLIDESHOW_INTERVAL_MS = 8000;
 
 const backdrop = document.getElementById("backdrop-preview") as HTMLElement;
 const layers = Array.from(document.querySelectorAll<HTMLImageElement>(".backdrop-image"));
 const skipButton = document.getElementById("skip-button") as HTMLButtonElement;
 
-let urls: string[] = [];
-let currentIndex = -1;
+let playlistUrls: string[] = [];
+let overrideUrl = "";
+let eligible = false;
+let currentPlaylistIndex = -1;
+let displayedUrl = "";
 let activeLayerIndex = 0;
 let loadGeneration = 0;
 let slideshowTimer: ReturnType<typeof setTimeout> | null = null;
 
 function clearSlideshowTimer(): void {
-    if (slideshowTimer) {
-        clearTimeout(slideshowTimer);
-        slideshowTimer = null;
+    if (!slideshowTimer) {
+        return;
     }
+    clearTimeout(slideshowTimer);
+    slideshowTimer = null;
 }
 
 function arraysEqual(left: string[], right: string[]): boolean {
@@ -26,72 +31,152 @@ function arraysEqual(left: string[], right: string[]): boolean {
 }
 
 function preloadNextImage(index: number): void {
-    if (urls.length < 2) {
+    if (playlistUrls.length < 2) {
         return;
     }
     const image = new Image();
-    image.src = urls[(index + 1) % urls.length];
+    image.src = playlistUrls[(index + 1) % playlistUrls.length];
 }
 
 function scheduleNextImage(): void {
     clearSlideshowTimer();
-    if (urls.length < 2) {
+    if (!eligible || overrideUrl || playlistUrls.length < 2) {
         return;
     }
     slideshowTimer = setTimeout(() => {
-        showImage((currentIndex + 1) % urls.length, urls.length);
+        const nextIndex = (Math.max(currentPlaylistIndex, 0) + 1) % playlistUrls.length;
+        showPlaylistImage(nextIndex, playlistUrls.length);
     }, SLIDESHOW_INTERVAL_MS);
 }
 
-function showImage(index: number, attemptsRemaining: number): void {
-    if (urls.length === 0 || attemptsRemaining <= 0) {
-        backdrop.classList.remove("visible");
+function showUrl(url: string, onLoad: () => void, onError: () => void): void {
+    const activeLayer = layers[activeLayerIndex];
+    if (
+        displayedUrl === url &&
+        activeLayer?.complete &&
+        Boolean(activeLayer.naturalWidth)
+    ) {
+        backdrop.classList.add("visible");
+        onLoad();
         return;
     }
 
-    const generation = loadGeneration;
+    const generation = ++loadGeneration;
     const nextLayerIndex = activeLayerIndex === 0 ? 1 : 0;
     const nextLayer = layers[nextLayerIndex];
-    const normalizedIndex = index % urls.length;
-
     nextLayer.onload = () => {
-        if (generation !== loadGeneration) {
+        if (generation !== loadGeneration || !eligible) {
             return;
         }
         layers[activeLayerIndex].classList.remove("active");
         nextLayer.classList.add("active");
         activeLayerIndex = nextLayerIndex;
-        currentIndex = normalizedIndex;
+        displayedUrl = url;
         backdrop.classList.add("visible");
-        preloadNextImage(normalizedIndex);
-        scheduleNextImage();
+        onLoad();
     };
     nextLayer.onerror = () => {
-        if (generation !== loadGeneration) {
+        if (generation !== loadGeneration || !eligible) {
             return;
         }
-        showImage((normalizedIndex + 1) % urls.length, attemptsRemaining - 1);
+        onError();
     };
     nextLayer.classList.remove("active");
-    nextLayer.src = urls[normalizedIndex];
+    nextLayer.src = url;
+}
+
+function showPlaylistImage(index: number, attemptsRemaining: number, allowDuringOverride = false): void {
+    if (
+        !eligible ||
+        playlistUrls.length === 0 ||
+        attemptsRemaining <= 0 ||
+        (overrideUrl && !allowDuringOverride)
+    ) {
+        if (attemptsRemaining <= 0) {
+            backdrop.classList.remove("visible");
+        }
+        return;
+    }
+
+    const normalizedIndex = index % playlistUrls.length;
+    showUrl(
+        playlistUrls[normalizedIndex],
+        () => {
+            currentPlaylistIndex = normalizedIndex;
+            preloadNextImage(normalizedIndex);
+            scheduleNextImage();
+        },
+        () => showPlaylistImage(
+            (normalizedIndex + 1) % playlistUrls.length,
+            attemptsRemaining - 1,
+            allowDuringOverride
+        )
+    );
+}
+
+function showOverride(): void {
+    clearSlideshowTimer();
+    showUrl(
+        overrideUrl,
+        () => undefined,
+        () => {
+            if (playlistUrls.length === 0) {
+                backdrop.classList.remove("visible");
+                return;
+            }
+            showPlaylistImage(
+                currentPlaylistIndex >= 0 ? currentPlaylistIndex : 0,
+                playlistUrls.length,
+                true
+            );
+        }
+    );
 }
 
 function setBackdrops(payload: OverlayBackdropsPayload): void {
-    const nextUrls = (payload?.urls || []).filter(Boolean);
-    if (arraysEqual(urls, nextUrls)) {
+    const nextPlaylistUrls = Array.from(new Set((payload?.playlistUrls || []).filter(Boolean)));
+    const nextOverrideUrl = payload?.overrideUrl || "";
+    const nextEligible = Boolean(payload?.eligible);
+    if (
+        arraysEqual(playlistUrls, nextPlaylistUrls) &&
+        overrideUrl === nextOverrideUrl &&
+        eligible === nextEligible
+    ) {
         return;
+    }
+
+    const currentPlaylistUrl = currentPlaylistIndex >= 0
+        ? playlistUrls[currentPlaylistIndex]
+        : "";
+    const playlistChanged = !arraysEqual(playlistUrls, nextPlaylistUrls);
+    const overrideEnded = Boolean(overrideUrl) && !nextOverrideUrl;
+    playlistUrls = nextPlaylistUrls;
+    overrideUrl = nextOverrideUrl;
+    eligible = nextEligible;
+    if (playlistChanged) {
+        currentPlaylistIndex = currentPlaylistUrl
+            ? playlistUrls.indexOf(currentPlaylistUrl)
+            : -1;
     }
 
     clearSlideshowTimer();
     loadGeneration += 1;
-    urls = nextUrls;
-    currentIndex = -1;
-
-    if (urls.length === 0) {
+    if (!eligible) {
         backdrop.classList.remove("visible");
         return;
     }
-    showImage(0, urls.length);
+    if (overrideUrl) {
+        showOverride();
+        return;
+    }
+    if (playlistUrls.length > 0) {
+        showPlaylistImage(
+            resolvePlaylistIndex(currentPlaylistIndex, playlistUrls.length, overrideEnded),
+            playlistUrls.length
+        );
+        return;
+    }
+    backdrop.classList.remove("visible");
 }
 
 function setSkipButton(payload: OverlaySkipButtonPayload): void {

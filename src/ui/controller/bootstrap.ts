@@ -2,7 +2,6 @@ import type { SidebarPreferencesPayload } from "../../shared/messages";
 
 import { MESSAGE_NAMES } from "../../shared/messages";
 import { setAuthenticationFailureHandler } from "../api";
-import { clearBackdropPreview } from "../backdropPreview";
 import { state } from "../state";
 import { getDeviceId } from "../storage";
 import { setupEventListeners } from "./events";
@@ -12,9 +11,6 @@ import { handleAuthenticationFailure, restoreSessionFromStorage } from "./sessio
 function applySidebarPreferences(payload: SidebarPreferencesPayload): void {
     const backdropPreviewsEnabled = payload?.backdropPreviewsEnabled !== false;
     state.backdropPreviewsEnabled = backdropPreviewsEnabled;
-    if (!backdropPreviewsEnabled) {
-        clearBackdropPreview();
-    }
     const preferEpisodeImagesInNextUp = Boolean(payload?.preferEpisodeImagesInNextUp);
     state.preferEpisodeImagesInNextUp = preferEpisodeImagesInNextUp;
 }

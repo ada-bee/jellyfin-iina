@@ -1,4 +1,4 @@
-import type { PreviewBackdropsPayload } from "../shared/messages";
+import type { BackdropContextPayload } from "../shared/messages";
 
 import { buildJellyfinImageUrl } from "../shared/images";
 import { MESSAGE_NAMES } from "../shared/messages";
@@ -6,30 +6,59 @@ import { getAuthState } from "./state";
 
 const { event, overlay } = iina;
 
+const OVERLAY_HIDE_DELAY_MS = 450;
+
 let initialized = false;
 let overlayReady = false;
-let ambientBackdropEligible = false;
-let backdropUrls: string[] = [];
+let backdropEligible = false;
+let playlistItemIds: string[] = [];
+let overrideItemId = "";
 let skipButtonLabel = "";
 let skipSegmentHandler: (() => void) | null = null;
+let overlayHideTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearOverlayHideTimer(): void {
+    if (!overlayHideTimer) {
+        return;
+    }
+    clearTimeout(overlayHideTimer);
+    overlayHideTimer = null;
+}
+
+function scheduleOverlayHide(): void {
+    clearOverlayHideTimer();
+    overlayHideTimer = setTimeout(() => {
+        overlayHideTimer = null;
+        overlay.hide();
+    }, OVERLAY_HIDE_DELAY_MS);
+}
 
 function syncOverlay(): void {
     if (!overlayReady) {
         return;
     }
 
+    const playlistUrls = playlistItemIds.map(buildBackdropUrl).filter(Boolean);
+    const overrideUrl = overrideItemId ? buildBackdropUrl(overrideItemId) : "";
+    const shouldShowOverlay = (backdropEligible && (playlistUrls.length > 0 || overrideUrl))
+        || Boolean(skipButtonLabel);
+    if (shouldShowOverlay) {
+        clearOverlayHideTimer();
+        overlay.show();
+    }
+
     overlay.postMessage(MESSAGE_NAMES.OverlayBackdrops, {
-        urls: ambientBackdropEligible ? backdropUrls : []
+        playlistUrls,
+        overrideUrl,
+        eligible: backdropEligible
     });
     overlay.postMessage(MESSAGE_NAMES.OverlaySkipButton, {
         label: skipButtonLabel
     });
 
     overlay.setClickable(Boolean(skipButtonLabel));
-    if ((ambientBackdropEligible && backdropUrls.length > 0) || skipButtonLabel) {
-        overlay.show();
-    } else {
-        overlay.hide();
+    if (!shouldShowOverlay) {
+        scheduleOverlayHide();
     }
 }
 
@@ -46,51 +75,56 @@ export function initializeMediaOverlay(): void {
         });
         syncOverlay();
     });
+    event.on("iina.window-will-close", clearOverlayHideTimer);
 }
 
 export function loadMediaOverlay(): void {
+    clearOverlayHideTimer();
     overlayReady = false;
     overlay.loadFile("ui/overlay.html");
 }
 
-export function setAmbientBackdropEligibility(eligible: boolean): void {
-    ambientBackdropEligible = eligible;
-    if (!eligible) {
-        backdropUrls = [];
+export function setBackdropEligibility(eligible: boolean): void {
+    if (backdropEligible === eligible) {
+        return;
     }
+    backdropEligible = eligible;
     syncOverlay();
 }
 
-export function previewBackdrops(payload: PreviewBackdropsPayload): void {
-    if (!ambientBackdropEligible) {
-        return;
-    }
+export function setBackdropContext(payload: BackdropContextPayload): void {
+    playlistItemIds = Array.from(new Set(
+        (payload?.itemIds || []).filter(
+            (itemId): itemId is string => typeof itemId === "string" && Boolean(itemId)
+        )
+    ));
+    overrideItemId = typeof payload?.overrideItemId === "string" ? payload.overrideItemId : "";
+    syncOverlay();
+}
 
+export function clearBackdropContext(): void {
+    playlistItemIds = [];
+    overrideItemId = "";
+    syncOverlay();
+}
+
+export function refreshMediaOverlay(): void {
+    syncOverlay();
+}
+
+function buildBackdropUrl(itemId: string): string {
     const authState = getAuthState();
-    if (!authState || !payload.itemId) {
-        backdropUrls = [];
-        syncOverlay();
-        return;
+    if (!authState) {
+        return "";
     }
-
-    backdropUrls = (payload.backdropTags || [])
-        .filter((tag): tag is string => typeof tag === "string" && Boolean(tag))
-        .map((tag, index) => buildJellyfinImageUrl({
-            serverUrl: authState.serverUrl,
-            accessToken: authState.accessToken,
-            itemId: payload.itemId,
-            imageType: "Backdrop",
-            imageIndex: index,
-            imageTag: tag,
-            maxWidth: 1920
-        }))
-        .filter(Boolean);
-    syncOverlay();
-}
-
-export function clearBackdropPreview(): void {
-    backdropUrls = [];
-    syncOverlay();
+    return buildJellyfinImageUrl({
+        serverUrl: authState.serverUrl,
+        accessToken: authState.accessToken,
+        itemId,
+        imageType: "Backdrop",
+        imageIndex: 0,
+        maxWidth: 1920
+    });
 }
 
 export function showSkipButton(label: string): void {
