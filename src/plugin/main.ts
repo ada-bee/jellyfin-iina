@@ -1,11 +1,18 @@
-import type { AuthUpdatedPayload, PlayItemPayload } from "../shared/messages";
+import type { AuthUpdatedPayload, PlayItemPayload, PreviewBackdropsPayload } from "../shared/messages";
 
 import { MESSAGE_NAMES } from "../shared/messages";
 import {
+    BACKDROP_PREVIEWS_PREF_KEY,
     PREFER_EPISODE_IMAGES_IN_NEXT_UP_PREF_KEY,
     SHOW_SIDEBAR_DELAY_MS
 } from "./constants";
 import { handlePlayItem, initializePlaybackHandlers } from "./playback";
+import {
+    clearBackdropPreview,
+    initializeMediaOverlay,
+    loadMediaOverlay,
+    previewBackdrops
+} from "./mediaOverlay";
 import { clearAuthState, updateAuthState } from "./state";
 import { isHttpsUrl, logDebug, normalizeServerUrl } from "./utils";
 
@@ -41,6 +48,7 @@ function showSidebarWithDelay(): void {
 function hideSidebar(): void {
     sidebar.hide();
     sidebarVisible = false;
+    clearBackdropPreview();
 }
 
 function showHttpsAlert(): void {
@@ -52,8 +60,17 @@ function getPreferEpisodeImagesInNextUp(): boolean {
     return Boolean(value);
 }
 
+function getBackdropPreviewsEnabled(): boolean {
+    const value = preferences.get(BACKDROP_PREVIEWS_PREF_KEY);
+    if (value === undefined || value === null) {
+        return true;
+    }
+    return Boolean(value);
+}
+
 function postSidebarPreferences(): void {
     sidebar.postMessage(MESSAGE_NAMES.SidebarPreferences, {
+        backdropPreviewsEnabled: getBackdropPreviewsEnabled(),
         preferEpisodeImagesInNextUp: getPreferEpisodeImagesInNextUp()
     });
 }
@@ -78,6 +95,8 @@ global.onMessage("showJellyfinSidebar", () => {
     toggleSidebarFromHotkey();
 });
 
+initializeMediaOverlay();
+
 initializePlaybackHandlers({
     showSidebar: showSidebarWithNotification,
     refreshSidebar: () => {
@@ -88,6 +107,7 @@ initializePlaybackHandlers({
 event.on("iina.window-loaded", () => {
     logDebug("Jellyfin: Window loaded");
 
+    loadMediaOverlay();
     sidebar.loadFile("ui/sidebar.html");
 
     sidebar.onMessage(MESSAGE_NAMES.PlayItem, (data: PlayItemPayload) => {
@@ -96,6 +116,17 @@ event.on("iina.window-loaded", () => {
             hideSidebar: hideSidebar,
             showHttpsAlert: showHttpsAlert
         });
+    });
+
+    sidebar.onMessage(MESSAGE_NAMES.PreviewBackdrops, (data: PreviewBackdropsPayload) => {
+        if (!getBackdropPreviewsEnabled()) {
+            clearBackdropPreview();
+            return;
+        }
+        if (!getSidebarVisibility()) {
+            return;
+        }
+        previewBackdrops(data);
     });
 
     sidebar.onMessage(MESSAGE_NAMES.AuthUpdated, (data: AuthUpdatedPayload) => {
@@ -115,6 +146,7 @@ event.on("iina.window-loaded", () => {
     });
 
     sidebar.onMessage(MESSAGE_NAMES.AuthCleared, () => {
+        clearBackdropPreview();
         clearAuthState();
     });
 

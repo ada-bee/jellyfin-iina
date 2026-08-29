@@ -17,6 +17,7 @@ import {
 } from "./constants";
 import { requestJson } from "./http";
 import { clearPlaybackHandoffs, registerPlaybackHandoff, takePlaybackHandoff } from "./handoffs";
+import { setAmbientBackdropEligibility } from "./mediaOverlay";
 import { requestAutoplayNextEpisode, resetPlaylistAfterReplace, shouldRequestAutoplay } from "./autoplay";
 import { clearSegmentState, startSegmentPolling } from "./segments";
 import { loadExternalSubtitles } from "./subtitles";
@@ -69,6 +70,7 @@ export function handlePlayItem(
     pendingWindowTitle = data.title ? sanitizeMediaTitle(String(data.title)) : null;
     logDebug("Jellyfin: Playing URL:", redactUrlForLog(url, 80));
 
+    setAmbientBackdropEligibility(false);
     stopActivePlayback("replacement requested");
     playbackResume.request(playback.playSessionId, data.resumeSeconds || 0);
     shouldResetPlaylistOnNextLoad = true;
@@ -92,11 +94,13 @@ export function initializePlaybackHandlers(options: PlaybackHandlersOptions): vo
         if (url.includes("Jellyfin.png")) {
             logDebug("Jellyfin: Splash loaded, showing sidebar");
             clearPlaybackState("splash loaded");
+            setAmbientBackdropEligibility(true);
             options.showSidebar();
             options.refreshSidebar();
             return;
         }
 
+        setAmbientBackdropEligibility(false);
         const handoff = takePlaybackHandoff(url);
         if (!handoff) {
             clearPlaybackState("non-Jellyfin file loaded");

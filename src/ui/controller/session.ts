@@ -1,4 +1,5 @@
 import { authenticateUser, fetchServerName } from "../api";
+import { clearBackdropPreview } from "../backdropPreview";
 import { ui } from "../dom";
 import { showBrowseView, showLoginView, updateServerHeader } from "../render";
 import { state } from "../state";
@@ -130,6 +131,7 @@ export function handleAuthenticationFailure(): void {
 }
 
 function clearActiveSession(): void {
+    clearBackdropPreview();
     state.serverUrl = "";
     state.serverName = "";
     state.accessToken = "";

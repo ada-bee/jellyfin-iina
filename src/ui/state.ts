@@ -43,6 +43,7 @@ export interface SidebarState {
     userId: string;
     deviceId: string;
     username: string;
+    backdropPreviewsEnabled: boolean;
     preferEpisodeImagesInNextUp: boolean;
     searchQuery: string;
     currentLibrary: LibraryState | null;
@@ -59,6 +60,7 @@ export const state: SidebarState = {
     userId: "",
     deviceId: "",
     username: "",
+    backdropPreviewsEnabled: true,
     preferEpisodeImagesInNextUp: false,
     searchQuery: "",
     currentLibrary: null,

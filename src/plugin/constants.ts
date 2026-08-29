@@ -16,6 +16,7 @@ export const EOF_WATCH_THRESHOLD_SECONDS = 0.5;
 export const SKIP_SEGMENT_POLL_INTERVAL_MS = 500;
 export const SKIP_SEGMENT_PREF_KEY = "skipSegmentsEnabled";
 export const AUTOPLAY_NEXT_PREF_KEY = "autoplayNextEpisodeEnabled";
+export const BACKDROP_PREVIEWS_PREF_KEY = "backdropPreviewsEnabled";
 export const PREFER_EPISODE_IMAGES_IN_NEXT_UP_PREF_KEY = "preferEpisodeImagesInNextUp";
 
 export const FIELDS_EPISODES =

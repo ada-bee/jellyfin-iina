@@ -23,6 +23,7 @@ If you like this plugin you might also be interested in [YouTube IINA Plugin](ht
 
 - Jellyfin-negotiated direct play, remux, and server-required transcoding.
 - Library browsing. Home screen shows Next Up and Recently Added. You can search for anything else.
+- Optional dimmed backdrop previews while hovering or keyboard-focusing items in the idle browser.
 - Playback progress reporting back to the Jellyfin server.
 - Resume playback from last position.
 - External subtitles through IINA's native track controls.

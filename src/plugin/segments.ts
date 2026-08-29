@@ -8,35 +8,11 @@ import {
     SKIP_SEGMENT_PREF_KEY
 } from "./constants";
 import { requestJson } from "./http";
+import { hideSkipButton, setSkipSegmentHandler, showSkipButton } from "./mediaOverlay";
 import { getCurrentPlayback } from "./state";
 import { formatError } from "./utils";
 
-const { console, core, mpv, overlay, preferences } = iina;
-
-const SKIP_OVERLAY_STYLE = `
-    .skip-overlay {
-        position: fixed;
-        right: 120px;
-        bottom: 120px;
-        z-index: 1000;
-    }
-
-    .skip-button {
-        font-size: 20px;
-        font-weight: 600;
-        padding: 13px 24px;
-        background: #ffffff;
-        color: #000000;
-        border: none;
-        border-radius: 999px;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
-        cursor: pointer;
-    }
-
-    .skip-button:active {
-        transform: scale(0.98);
-    }
-`;
+const { console, core, mpv, preferences } = iina;
 
 let skipOverlayVisible = false;
 let skipOverlayEnabled = true;
@@ -66,20 +42,10 @@ function getSkipLabel(segment: NormalizedSegment | null): string {
     return "Skip";
 }
 
-function renderSkipButton(label: string): string {
-    return `
-        <div class="skip-overlay">
-            <button class="skip-button" data-clickable onclick="iina.postMessage('skip-segment')" type="button">
-                ${label}
-            </button>
-        </div>
-    `;
-}
-
 function showSkipOverlay(label: string): void {
     if (skipOverlayVisible) {
         if (label !== skipOverlayLabel) {
-            overlay.setContent(renderSkipButton(label));
+            showSkipButton(label);
             skipOverlayLabel = label;
         }
         return;
@@ -87,15 +53,11 @@ function showSkipOverlay(label: string): void {
 
     skipOverlayLabel = label;
 
-    overlay.simpleMode();
-    overlay.setStyle(SKIP_OVERLAY_STYLE);
-    overlay.setContent(renderSkipButton(label));
-    overlay.setClickable(true);
-    overlay.show();
+    showSkipButton(label);
     skipOverlayVisible = true;
 
     if (!skipOverlayInitialized) {
-        overlay.onMessage("skip-segment", () => {
+        setSkipSegmentHandler(() => {
             if (!activeSkipSegment) {
                 return;
             }
@@ -113,8 +75,7 @@ function hideSkipOverlay(): void {
     if (!skipOverlayVisible) {
         return;
     }
-    overlay.hide();
-    overlay.setClickable(false);
+    hideSkipButton();
     skipOverlayVisible = false;
     skipOverlayLabel = "";
     activeSkipSegment = null;
