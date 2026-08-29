@@ -5,10 +5,10 @@ import { extname, resolve, sep } from "node:path";
 import { Database } from "bun:sqlite";
 
 const projectRoot = resolve(import.meta.dir, "..");
-const sourceUiRoot = resolve(projectRoot, "src/ui");
-const pluginUiRoot = resolve(projectRoot, "xyz.brbc.jellyfin.iinaplugin/ui");
+const sourceRoot = resolve(projectRoot, "src");
+const pluginUiRoot = resolve(projectRoot, "ui");
 const sidebarHtmlPath = resolve(pluginUiRoot, "sidebar.html");
-const previewEntryPath = resolve(sourceUiRoot, "preview.ts");
+const previewEntryPath = resolve(sourceRoot, "entries/preview.ts");
 const iinaWebsiteDataRoot = resolve(
     homedir(),
     "Library/WebKit/com.colliderli.iina/WebsiteData/Default"
@@ -238,76 +238,89 @@ async function serveStaticFile(pathname) {
     }
 }
 
+async function servePreviewPage() {
+    try {
+        return new Response(await buildPreviewHtml(), {
+            headers: noStoreHeaders("text/html; charset=utf-8")
+        });
+    } catch (error) {
+        return errorResponse(error, "Preview failed", 500);
+    }
+}
+
+async function servePreviewSession(url) {
+    try {
+        const session = await loadIinaSession();
+        return Response.json({
+            serverUrl: `${url.origin}/__preview/jellyfin`,
+            accessToken: "preview-proxy",
+            userId: session.userId,
+            username: session.username || "",
+            serverName: session.serverName || ""
+        }, { headers: { "Cache-Control": "no-store" } });
+    } catch (error) {
+        return errorResponse(error, "IINA session unavailable", 404);
+    }
+}
+
+async function serveJellyfinProxy(request, url) {
+    try {
+        return await proxyJellyfinRequest(request, url);
+    } catch (error) {
+        return errorResponse(error, "Jellyfin proxy failed", 502);
+    }
+}
+
+function serveFixtureImage(pathname) {
+    const match = pathname.match(/^\/Items\/([^/]+)\/Images\/([^/]+)$/);
+    if (!match) {
+        return null;
+    }
+    const itemId = decodeURIComponent(match[1]);
+    const imageType = decodeURIComponent(match[2]);
+    return new Response(createFixtureImage(itemId, imageType), {
+        headers: noStoreHeaders("image/svg+xml; charset=utf-8")
+    });
+}
+
+function errorResponse(error, fallbackMessage, status) {
+    return new Response(error instanceof Error ? error.message : fallbackMessage, {
+        status,
+        headers: noStoreHeaders("text/plain; charset=utf-8")
+    });
+}
+
+async function handlePreviewRequest(request) {
+    const url = new URL(request.url);
+    if (url.pathname === "/" || url.pathname === "/preview") {
+        return await servePreviewPage();
+    }
+    if (url.pathname === "/__preview/sidebar.js") {
+        return await buildPreviewScript();
+    }
+    if (url.pathname === "/__preview/version") {
+        return new Response(String(previewRevision), {
+            headers: noStoreHeaders("text/plain; charset=utf-8")
+        });
+    }
+    if (url.pathname === "/__preview/session") {
+        return await servePreviewSession(url);
+    }
+    if (url.pathname.startsWith("/__preview/jellyfin/")) {
+        return await serveJellyfinProxy(request, url);
+    }
+    const fixtureImage = serveFixtureImage(url.pathname);
+    if (fixtureImage) {
+        return fixtureImage;
+    }
+    const staticResponse = await serveStaticFile(url.pathname);
+    return staticResponse || new Response("Not found", { status: 404 });
+}
+
 const server = Bun.serve({
     hostname: "127.0.0.1",
     port,
-    async fetch(request) {
-        const url = new URL(request.url);
-
-        if (url.pathname === "/" || url.pathname === "/preview") {
-            try {
-                return new Response(await buildPreviewHtml(), {
-                    headers: noStoreHeaders("text/html; charset=utf-8")
-                });
-            } catch (error) {
-                return new Response(error instanceof Error ? error.message : "Preview failed", {
-                    status: 500,
-                    headers: noStoreHeaders("text/plain; charset=utf-8")
-                });
-            }
-        }
-
-        if (url.pathname === "/__preview/sidebar.js") {
-            return await buildPreviewScript();
-        }
-
-        if (url.pathname === "/__preview/version") {
-            return new Response(String(previewRevision), {
-                headers: noStoreHeaders("text/plain; charset=utf-8")
-            });
-        }
-
-        if (url.pathname === "/__preview/session") {
-            try {
-                const session = await loadIinaSession();
-                return Response.json({
-                    serverUrl: `${url.origin}/__preview/jellyfin`,
-                    accessToken: "preview-proxy",
-                    userId: session.userId,
-                    username: session.username || "",
-                    serverName: session.serverName || ""
-                }, { headers: { "Cache-Control": "no-store" } });
-            } catch (error) {
-                return new Response(error instanceof Error ? error.message : "IINA session unavailable", {
-                    status: 404,
-                    headers: noStoreHeaders("text/plain; charset=utf-8")
-                });
-            }
-        }
-
-        if (url.pathname.startsWith("/__preview/jellyfin/")) {
-            try {
-                return await proxyJellyfinRequest(request, url);
-            } catch (error) {
-                return new Response(error instanceof Error ? error.message : "Jellyfin proxy failed", {
-                    status: 502,
-                    headers: noStoreHeaders("text/plain; charset=utf-8")
-                });
-            }
-        }
-
-        const imageMatch = url.pathname.match(/^\/Items\/([^/]+)\/Images\/([^/]+)$/);
-        if (imageMatch) {
-            const itemId = decodeURIComponent(imageMatch[1]);
-            const imageType = decodeURIComponent(imageMatch[2]);
-            return new Response(createFixtureImage(itemId, imageType), {
-                headers: noStoreHeaders("image/svg+xml; charset=utf-8")
-            });
-        }
-
-        const staticResponse = await serveStaticFile(url.pathname);
-        return staticResponse || new Response("Not found", { status: 404 });
-    }
+    fetch: handlePreviewRequest
 });
 
 let reloadTimer;
@@ -318,7 +331,7 @@ const scheduleReload = () => {
     }, 80);
 };
 const watchers = [
-    watch(sourceUiRoot, { recursive: true }, scheduleReload),
+    watch(sourceRoot, { recursive: true }, scheduleReload),
     watch(pluginUiRoot, { recursive: true }, scheduleReload)
 ];
 
@@ -332,4 +345,4 @@ process.on("SIGTERM", stopServer);
 
 console.log(`Sidebar preview: http://localhost:${server.port}/?state=home`);
 console.log(`Live data: http://localhost:${server.port}/?source=live`);
-console.log("States: home, search, series, episodes, login, loading, empty, error");
+console.log("States: home, search, movie, series, login, loading, empty, error");

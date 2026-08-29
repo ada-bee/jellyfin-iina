@@ -1,0 +1,2 @@
+dist/*.js linguist-generated=true
+ui/dist/*.js linguist-generated=true

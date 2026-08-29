@@ -1,6 +1,6 @@
-import { existsSync, readFileSync } from "fs";
+import { existsSync, readFileSync } from "node:fs";
 
-const infoPath = "xyz.brbc.jellyfin.iinaplugin/Info.json";
+const infoPath = "Info.json";
 const infoRaw = readFileSync(infoPath, "utf8");
 const info = JSON.parse(infoRaw);
 
@@ -13,23 +13,24 @@ const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const pattern = new RegExp(`version\\s*:\\s*"${escapeRegExp(info.version)}"`);
 
 const files = [
-    "xyz.brbc.jellyfin.iinaplugin/dist/main.js",
-    "xyz.brbc.jellyfin.iinaplugin/dist/global.js",
-    "xyz.brbc.jellyfin.iinaplugin/ui/dist/sidebar.js",
+    { path: "dist/main.js", includesVersion: true },
+    { path: "dist/global.js", includesVersion: true },
+    { path: "ui/dist/sidebar.js", includesVersion: true },
+    { path: "ui/dist/overlay.js", includesVersion: false }
 ];
 
 let ok = true;
 
 for (const file of files) {
-    if (!existsSync(file)) {
-        console.error(`Missing build output: ${file}`);
+    if (!existsSync(file.path)) {
+        console.error(`Missing build output: ${file.path}`);
         ok = false;
         continue;
     }
 
-    const content = readFileSync(file, "utf8");
-    if (!pattern.test(content)) {
-        console.error(`Version mismatch in ${file}; expected ${info.version}`);
+    const content = readFileSync(file.path, "utf8");
+    if (file.includesVersion && !pattern.test(content)) {
+        console.error(`Version mismatch in ${file.path}; expected ${info.version}`);
         ok = false;
     }
 }

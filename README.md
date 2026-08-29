@@ -13,6 +13,9 @@ If you like this plugin you might also be interested in [YouTube IINA Plugin](ht
 3. Enter `ada-bee/jellyfin-iina`
 4. Restart IINA if it does not appear immediately.
 
+The repository root contains the complete plugin, so IINA can install a GitHub source
+archive directly when no release asset is available.
+
 ## Usage
 
 - Open the Jellyfin sidebar with Shift+J.
@@ -33,6 +36,19 @@ If you like this plugin you might also be interested in [YouTube IINA Plugin](ht
 ## Screenshot
 
 ![Screenshot](images/screenshot.png)
+
+## Development
+
+Install dependencies with `bun install`, then use:
+
+- `bun run verify` to run tests, type checks, and runtime-tree validation.
+- `bun run build` to refresh the committed bundles in `dist/` and `ui/dist/`.
+- `bun run preview` to open the sidebar browser preview.
+- `bun run package` to build and verify the `.iinaplgz` release archive.
+
+Link the repository root with `iina-plugin link .` to load it as a development plugin.
+Commit bundle changes alongside their TypeScript sources; CI fresh-builds them and rejects
+any difference.
 
 ## Disclaimer
 

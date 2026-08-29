@@ -1,9 +1,12 @@
-import { readFileSync } from "fs";
-import { resolve } from "path";
-import { spawnSync } from "child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { spawnSync } from "node:child_process";
 
-const archivePath = resolve("xyz.brbc.jellyfin.iinaplugin.iinaplgz");
-const pluginInfo = JSON.parse(readFileSync("xyz.brbc.jellyfin.iinaplugin/Info.json", "utf8"));
+import { ARCHIVE_NAME, RUNTIME_FILES, verifyRuntimeTree } from "./runtime-files.js";
+
+const archivePath = resolve(ARCHIVE_NAME);
+const sourceInfo = JSON.parse(readFileSync("Info.json", "utf8"));
 
 function runUnzip(args) {
     const result = spawnSync("unzip", args, { encoding: "utf8" });
@@ -19,41 +22,41 @@ const archiveFiles = runUnzip(["-Z1", archivePath])
     .map(value => value.trim())
     .filter(Boolean);
 
-const requiredFiles = [
-    "Info.json",
-    pluginInfo.entry,
-    pluginInfo.globalEntry,
-    pluginInfo.preferencesPage,
-    "ui/sidebar.html",
-    "ui/sidebar.css",
-    "ui/dist/sidebar.js"
-];
-
 let ok = true;
-for (const file of requiredFiles) {
-    if (!archiveFiles.includes(file)) {
-        console.error(`Plugin archive is missing ${file}.`);
-        ok = false;
-    }
-}
-
 for (const file of archiveFiles) {
-    if (file.startsWith("/") || file.split("/").includes("..")) {
+    if (file.startsWith("/") || file.includes("\\") || file.split("/").includes("..")) {
         console.error(`Plugin archive contains an unsafe path: ${file}`);
         ok = false;
     }
 }
 
-const archivedInfo = JSON.parse(runUnzip(["-p", archivePath, "Info.json"]));
-for (const key of ["identifier", "version", "ghVersion"]) {
-    if (archivedInfo[key] !== pluginInfo[key]) {
-        console.error(`Archived Info.json ${key} does not match the source manifest.`);
-        ok = false;
-    }
+const actualFiles = [...archiveFiles].sort();
+if (new Set(actualFiles).size !== actualFiles.length) {
+    console.error("Plugin archive contains duplicate paths.");
+    ok = false;
+}
+if (JSON.stringify(actualFiles) !== JSON.stringify(RUNTIME_FILES)) {
+    console.error("Plugin archive contents do not match the runtime allowlist.");
+    console.error(`Expected: ${RUNTIME_FILES.join(", ")}`);
+    console.error(`Actual: ${actualFiles.join(", ")}`);
+    ok = false;
 }
 
 if (!ok) {
     process.exit(1);
 }
 
-console.log(`Verified ${archivePath} (${pluginInfo.identifier} ${pluginInfo.version}).`);
+const temporaryDirectory = mkdtempSync(join(tmpdir(), "jellyfin-iina-archive-"));
+try {
+    runUnzip(["-q", archivePath, "-d", temporaryDirectory]);
+    const pluginInfo = verifyRuntimeTree(temporaryDirectory, ARCHIVE_NAME);
+    if (JSON.stringify(pluginInfo) !== JSON.stringify(sourceInfo)) {
+        throw new Error("Archived Info.json does not match the source manifest.");
+    }
+    console.log(`Verified ${archivePath} (${pluginInfo.identifier} ${pluginInfo.version}).`);
+} catch (error) {
+    console.error(error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+} finally {
+    rmSync(temporaryDirectory, { recursive: true, force: true });
+}

@@ -19,5 +19,5 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Verify and package
+      - name: Verify source archive, committed bundles, and release package
         run: bun run ci

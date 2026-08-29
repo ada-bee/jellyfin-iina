@@ -8,8 +8,22 @@
     "types": ["iina-plugin-definition"],
     "resolveJsonModule": true,
     "skipLibCheck": true,
-    "strict": true
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
   },
-  "include": ["src/ui/**/*.ts", "src/shared/**/*.ts"],
+  "include": [
+    "src/entries/sidebar.ts",
+    "src/entries/overlay.ts",
+    "src/entries/preview.ts",
+    "src/sidebar/**/*.ts",
+    "src/overlay/**/*.ts",
+    "src/preview/**/*.ts",
+    "src/shared/**/*.ts",
+    "src/playback/**/*.ts",
+    "src/jellyfin/**/*.ts",
+    "src/adapters/browser/**/*.ts",
+    "src/sidebar/iina-webview.d.ts"
+  ],
   "exclude": ["src/**/*.test.ts"]
 }

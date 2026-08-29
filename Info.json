@@ -1,5 +1,32 @@
 {
+  "name": "Jellyfin",
   "identifier": "xyz.brbc.jellyfin",
   "version": "3.0.0",
-  "ghVersion": 9
+  "ghRepo": "ada-bee/jellyfin-iina",
+  "ghVersion": 9,
+  "description": "Browse and play media from your Jellyfin server",
+  "author": {
+    "name": "ada-bee"
+  },
+  "entry": "dist/main.js",
+  "globalEntry": "dist/global.js",
+  "sidebarTab": {
+    "name": "Jellyfin"
+  },
+  "preferencesPage": "ui/preferences.html",
+  "preferenceDefaults": {
+    "skipSegmentsEnabled": true,
+    "autoplayNextEpisodeEnabled": true,
+    "backdropPreviewsEnabled": true,
+    "preferEpisodeImagesInNextUp": false
+  },
+  "permissions": [
+    "network-request",
+    "show-osd",
+    "show-alert",
+    "sidebar",
+    "file-system",
+    "video-overlay"
+  ],
+  "allowedDomains": ["*"]
 }

@@ -17,9 +17,8 @@ node_modules/
 
 # Build artifacts
 build/
-dist/
-xyz.brbc.jellyfin.iinaplugin/dist/
-xyz.brbc.jellyfin.iinaplugin/ui/dist/
+
+# Distributable bundles in dist/ and ui/dist/ are intentionally tracked.
 
 # Env files
 .env
