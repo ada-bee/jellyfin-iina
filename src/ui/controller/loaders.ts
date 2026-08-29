@@ -2,17 +2,20 @@ import type { JellyfinBaseItem } from "../../shared/jellyfin";
 
 import { apiRequest } from "../api";
 import {
+    appendLibraryGridItems,
     renderEmptyState,
     renderHomeSections,
+    renderLibraryGrid,
     renderListCards,
     renderSearchResults,
     renderSeriesOverview,
+    showLibraryGridLoadError,
     showError,
     showLoading,
     updateTitle,
     hideLoading
 } from "../render";
-import { state } from "../state";
+import { state, type LibraryState } from "../state";
 import {
     buildEpisodesEndpoint,
     buildItemsByIdsEndpoint,
@@ -28,34 +31,86 @@ import {
 import { log } from "../utils";
 
 let viewRequestId = 0;
+const LIBRARY_PAGE_SIZE = 60;
+const homeViewCache = new Map<string, HomeViewData>();
+const libraryViewCache = new Map<string, LibraryState>();
+
+interface LibraryLoadOptions {
+    libraryId: string;
+    libraryName: string;
+    collectionType: string;
+    addBreadcrumb: boolean;
+}
+
+interface HomeViewData {
+    continueWatchingItems: JellyfinBaseItem[];
+    newestEpisodes: JellyfinBaseItem[];
+    recentMovies: JellyfinBaseItem[];
+    recentSeries: JellyfinBaseItem[];
+}
 
 export function cancelPendingViewRequest(): void {
     viewRequestId += 1;
 }
 
-async function fetchAndRenderLibraryItems(options: {
-    libraryId: string;
-    libraryName: string;
-    collectionType: string;
-    addBreadcrumb: boolean;
-}): Promise<void> {
+async function fetchAndRenderLibraryItems(options: LibraryLoadOptions): Promise<void> {
+    const cacheKey = getLibraryCacheKey(options.libraryId, options.collectionType);
+    const cachedLibrary = libraryViewCache.get(cacheKey);
+    if (cachedLibrary) {
+        viewRequestId += 1;
+        setCurrentLibraryContext(cachedLibrary, options);
+        state.lastAction = () => fetchAndRenderLibraryItems({ ...options, addBreadcrumb: false });
+        updateTitle(options.libraryName);
+        hideLoading();
+        if (cachedLibrary.items.length === 0) {
+            renderEmptyState("No items found");
+        } else {
+            renderLibraryGrid(cachedLibrary.items, cachedLibrary.hasMore, loadMoreLibraryItems);
+        }
+        restoreLibraryScrollPosition(cachedLibrary.scrollTop);
+        return;
+    }
+
     const requestId = ++viewRequestId;
+    const library: LibraryState = {
+        id: options.libraryId,
+        name: options.libraryName,
+        type: options.collectionType,
+        items: [] as JellyfinBaseItem[],
+        totalItemCount: 0,
+        hasMore: false,
+        isLoadingMore: false,
+        scrollTop: 0
+    };
+    setCurrentLibraryContext(library, options);
+
     updateTitle(options.libraryName);
+    state.lastAction = () => fetchAndRenderLibraryItems({ ...options, addBreadcrumb: false });
     showLoading();
 
     try {
-        const endpoint = buildLibraryItemsEndpoint(state.userId, options.libraryId, options.collectionType);
-        const data = await apiRequest<{ Items?: JellyfinBaseItem[] }>("GET", endpoint);
+        const endpoint = buildLibraryItemsEndpoint(
+            state.userId,
+            options.libraryId,
+            options.collectionType,
+            0,
+            LIBRARY_PAGE_SIZE
+        );
+        const data = await apiRequest<{
+            Items?: JellyfinBaseItem[];
+            TotalRecordCount?: number;
+        }>("GET", endpoint);
         if (requestId !== viewRequestId) {
             return;
         }
         const items = data?.Items || [];
-
-        state.currentLibrary = {
-            id: options.libraryId,
-            name: options.libraryName,
-            type: options.collectionType
-        };
+        const totalItemCount = data?.TotalRecordCount ?? items.length;
+        library.items = items;
+        library.totalItemCount = totalItemCount;
+        library.hasMore = data?.TotalRecordCount === undefined
+            ? items.length === LIBRARY_PAGE_SIZE
+            : items.length < totalItemCount;
+        libraryViewCache.set(cacheKey, library);
         state.lastAction = () => fetchAndRenderLibraryItems({
             libraryId: options.libraryId,
             libraryName: options.libraryName,
@@ -63,31 +118,91 @@ async function fetchAndRenderLibraryItems(options: {
             addBreadcrumb: false
         });
 
-        if (options.addBreadcrumb) {
-            const breadcrumb = {
-                type: "library" as const,
-                id: options.libraryId,
-                name: options.libraryName,
-                collectionType: options.collectionType
-            };
-            if (!state.breadcrumb.find(entry => entry.id === breadcrumb.id)) {
-                state.breadcrumb.push(breadcrumb);
-            }
-        }
-
         updateTitle(state.breadcrumb[state.breadcrumb.length - 1]?.name || options.libraryName);
         hideLoading();
         if (items.length === 0) {
             renderEmptyState("No items found");
             return;
         }
-        renderListCards(items, { showSeriesName: false });
+        renderLibraryGrid(items, library.hasMore, loadMoreLibraryItems);
+        restoreLibraryScrollPosition(0);
     } catch (error) {
         if (requestId !== viewRequestId) {
             return;
         }
         showError(error instanceof Error ? error.message : "Failed to load items");
     }
+}
+
+function setCurrentLibraryContext(library: LibraryState, options: LibraryLoadOptions): void {
+    state.currentLibrary = library;
+    state.currentSeries = null;
+    state.currentSeason = null;
+    if (options.addBreadcrumb) {
+        state.breadcrumb = [{
+            type: "library",
+            id: options.libraryId,
+            name: options.libraryName,
+            collectionType: options.collectionType
+        }];
+    }
+}
+
+async function loadMoreLibraryItems(): Promise<void> {
+    const library = state.currentLibrary;
+    if (!library || library.isLoadingMore || !library.hasMore || !isCurrentLibraryView()) {
+        return;
+    }
+
+    library.isLoadingMore = true;
+    try {
+        const endpoint = buildLibraryItemsEndpoint(
+            state.userId,
+            library.id,
+            library.type,
+            library.items.length,
+            LIBRARY_PAGE_SIZE
+        );
+        const data = await apiRequest<{
+            Items?: JellyfinBaseItem[];
+            TotalRecordCount?: number;
+        }>("GET", endpoint);
+        if (library !== state.currentLibrary || !isCurrentLibraryView()) {
+            return;
+        }
+
+        const knownIds = new Set(library.items.map(item => item.Id).filter(Boolean));
+        const newItems = (data?.Items || []).filter(item => !item.Id || !knownIds.has(item.Id));
+        library.items.push(...newItems);
+        library.totalItemCount = data?.TotalRecordCount ?? library.items.length;
+        library.hasMore = newItems.length > 0 && (
+            data?.TotalRecordCount === undefined
+                ? (data?.Items || []).length === LIBRARY_PAGE_SIZE
+                : library.items.length < library.totalItemCount
+        );
+        appendLibraryGridItems(newItems, library.hasMore);
+    } catch {
+        if (library === state.currentLibrary && isCurrentLibraryView()) {
+            showLibraryGridLoadError(() => void loadMoreLibraryItems());
+        }
+    } finally {
+        library.isLoadingMore = false;
+    }
+}
+
+export function saveCurrentLibraryScrollPosition(): void {
+    if (state.currentLibrary && isCurrentLibraryView(true)) {
+        state.currentLibrary.scrollTop = window.scrollY;
+    }
+}
+
+function restoreLibraryScrollPosition(scrollTop: number): void {
+    requestAnimationFrame(() => window.scrollTo(0, scrollTop));
+}
+
+function isCurrentLibraryView(ignoreSearch: boolean = false): boolean {
+    const current = state.breadcrumb[state.breadcrumb.length - 1];
+    return current?.type === "library" && (ignoreSearch || !state.searchQuery);
 }
 
 async function fetchAndRenderSeasons(options: {
@@ -222,11 +337,27 @@ export async function reloadEpisodes(breadcrumb: {
     });
 }
 
-export async function loadHome(): Promise<void> {
+export async function loadHome(forceReload: boolean = false): Promise<void> {
     const requestId = ++viewRequestId;
     state.breadcrumb = [];
-    state.lastAction = loadHome;
+    state.currentLibrary = null;
+    state.currentSeries = null;
+    state.currentSeason = null;
+    state.lastAction = () => loadHome(true);
     updateTitle("Home");
+    const cacheKey = getSessionCacheKey();
+    const cachedHome = forceReload ? undefined : homeViewCache.get(cacheKey);
+    if (cachedHome) {
+        hideLoading();
+        renderHomeSections(
+            cachedHome.continueWatchingItems,
+            cachedHome.newestEpisodes,
+            cachedHome.recentMovies,
+            cachedHome.recentSeries
+        );
+        return;
+    }
+
     showLoading();
 
     try {
@@ -239,6 +370,12 @@ export async function loadHome(): Promise<void> {
         if (requestId !== viewRequestId) {
             return;
         }
+        homeViewCache.set(cacheKey, {
+            continueWatchingItems,
+            newestEpisodes,
+            recentMovies,
+            recentSeries
+        });
         renderHomeSections(continueWatchingItems, newestEpisodes, recentMovies, recentSeries);
         hideLoading();
     } catch (error) {
@@ -247,6 +384,14 @@ export async function loadHome(): Promise<void> {
         }
         showError(error instanceof Error ? error.message : "Failed to load items");
     }
+}
+
+function getSessionCacheKey(): string {
+    return `${state.serverUrl}\u0000${state.userId}`;
+}
+
+function getLibraryCacheKey(libraryId: string, collectionType: string): string {
+    return `${getSessionCacheKey()}\u0000${collectionType}\u0000${libraryId}`;
 }
 
 async function loadHomeItems(limit: number = 5): Promise<JellyfinBaseItem[]> {
@@ -379,6 +524,7 @@ export async function performSearch(query: string): Promise<void> {
     state.lastAction = () => performSearch(query);
     updateTitle("Search Results");
     showLoading();
+    window.scrollTo(0, 0);
 
     try {
         const endpoint = buildSearchEndpoint(state.userId, query);

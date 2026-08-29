@@ -11,11 +11,12 @@ import {
     resetSearchState
 } from "./navigation";
 import { handleLogin } from "./session";
-import { loadEpisodes, loadItems, loadSeasons } from "./loaders";
+import { loadEpisodes, loadItems, loadSeasons, saveCurrentLibraryScrollPosition } from "./loaders";
 
 export function setupEventListeners(): void {
     ui.loginForm.addEventListener("submit", handleLogin);
     ui.backBtn.addEventListener("click", handleBack);
+    ui.sectionTitle.addEventListener("click", handleBack);
     ui.retryBtn.addEventListener("click", handleRetry);
     ui.searchFilters.addEventListener("click", handleSearchFilterClick);
     ui.searchInput.addEventListener("input", handleSearchInput);
@@ -87,6 +88,8 @@ function handleListCardSelection(card: HTMLElement): void {
     if (type === "Series") {
         if (state.searchQuery) {
             resetSearchState(false);
+        } else {
+            saveCurrentLibraryScrollPosition();
         }
         void loadSeasons(id, name);
         return;

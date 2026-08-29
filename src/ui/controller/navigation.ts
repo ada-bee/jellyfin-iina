@@ -7,7 +7,8 @@ import {
     performSearch,
     reloadEpisodes,
     reloadItems,
-    reloadSeasons
+    reloadSeasons,
+    saveCurrentLibraryScrollPosition
 } from "./loaders";
 
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
@@ -18,15 +19,27 @@ export function updateSearchState(query: string): void {
 }
 
 export function resetSearchState(shouldReload: boolean = true): void {
+    const searchOrigin = state.searchOrigin;
     cancelScheduledSearch();
     ui.searchInput.value = "";
     updateSearchState("");
-    state.searchFilter = "all";
-    ui.searchFilters.querySelectorAll<HTMLButtonElement>("[data-search-filter]").forEach(button => {
-        button.setAttribute("aria-pressed", String(button.dataset.searchFilter === "all"));
-    });
+    setSearchFilterSelection("all");
+    state.searchOrigin = null;
 
     if (shouldReload) {
+        const libraryBreadcrumb = state.breadcrumb[state.breadcrumb.length - 1];
+        if (
+            (searchOrigin === "library" || searchOrigin === null) &&
+            state.currentLibrary &&
+            libraryBreadcrumb?.type === "library"
+        ) {
+            void reloadItems(libraryBreadcrumb);
+            return;
+        }
+        state.breadcrumb = [];
+        state.currentLibrary = null;
+        state.currentSeries = null;
+        state.currentSeason = null;
         void loadHome();
     }
 }
@@ -36,6 +49,9 @@ export function handleBack(): void {
         return;
     }
 
+    if (state.breadcrumb[state.breadcrumb.length - 1]?.type === "library") {
+        saveCurrentLibraryScrollPosition();
+    }
     state.breadcrumb.pop();
 
     if (state.breadcrumb.length === 0) {
@@ -94,7 +110,7 @@ export function handleSearchInput(event: Event): void {
         return;
     }
 
-    resetBrowseContextForSearch();
+    prepareBrowseContextForSearch();
     cancelScheduledSearch();
     searchTimer = setTimeout(() => {
         searchTimer = null;
@@ -117,16 +133,36 @@ export function handleSearchSubmit(event: Event): void {
         return;
     }
 
-    resetBrowseContextForSearch();
+    prepareBrowseContextForSearch();
     void performSearch(query);
 }
 
-function resetBrowseContextForSearch(): void {
+function prepareBrowseContextForSearch(): void {
+    if (state.searchOrigin) {
+        return;
+    }
+
     cancelPendingViewRequest();
+    const current = state.breadcrumb[state.breadcrumb.length - 1];
+    if (current?.type === "library" && state.currentLibrary) {
+        saveCurrentLibraryScrollPosition();
+        state.searchOrigin = "library";
+        setSearchFilterSelection(state.currentLibrary.type === "movies" ? "movie" : "series");
+        return;
+    }
+
+    state.searchOrigin = "home";
     state.breadcrumb = [];
     state.currentLibrary = null;
     state.currentSeries = null;
     state.currentSeason = null;
+}
+
+function setSearchFilterSelection(filter: "all" | "movie" | "series"): void {
+    state.searchFilter = filter;
+    ui.searchFilters.querySelectorAll<HTMLButtonElement>("[data-search-filter]").forEach(button => {
+        button.setAttribute("aria-pressed", String(button.dataset.searchFilter === filter));
+    });
 }
 
 function cancelScheduledSearch(): void {

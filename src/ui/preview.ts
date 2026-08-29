@@ -9,6 +9,7 @@ import {
     hideLoading,
     renderEmptyState,
     renderHomeSections,
+    renderLibraryGrid,
     renderListCards,
     renderSearchResults,
     renderSeriesOverview,
@@ -150,6 +151,7 @@ function resetPreviewUi(): void {
     state.currentSeason = null;
     state.searchQuery = "";
     state.searchFilter = "all";
+    state.searchOrigin = null;
     ui.loading.classList.add("hidden");
     ui.errorState.classList.add("hidden");
     ui.content.classList.remove("hidden");
@@ -253,6 +255,7 @@ interface LivePreviewSession {
 
 function setupFixturePreview(): void {
     ui.backBtn.addEventListener("click", () => navigateToPreview("home"));
+    ui.sectionTitle.addEventListener("click", () => navigateToPreview("home"));
     ui.retryBtn.addEventListener("click", () => navigateToPreview("home"));
     ui.clearSearchButton.addEventListener("click", () => navigateToPreview("home"));
     ui.loginForm.addEventListener("submit", event => {
@@ -276,9 +279,20 @@ function setupFixturePreview(): void {
         if (libraryLink) {
             const collectionType = libraryLink.dataset.homeLibrary || "movies";
             const name = libraryLink.dataset.homeLibraryName || "Library";
+            const items = collectionType === "movies" ? recentMovies : recentSeries;
             state.breadcrumb = [{ type: "library", id: `preview-${collectionType}`, name, collectionType }];
+            state.currentLibrary = {
+                id: `preview-${collectionType}`,
+                name,
+                type: collectionType,
+                items,
+                totalItemCount: items.length,
+                hasMore: false,
+                isLoadingMore: false,
+                scrollTop: 0
+            };
             updateTitle(name);
-            renderListCards(collectionType === "movies" ? recentMovies : recentSeries, { showSeriesName: false });
+            renderLibraryGrid(items, false, () => undefined);
             return;
         }
         const card = findListCard(event.target);

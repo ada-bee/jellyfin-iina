@@ -15,7 +15,7 @@ export const ui = {
     backBtn: getElement<HTMLButtonElement>("back-btn"),
     navigationLayer: getElement<HTMLElement>("navigation-layer"),
     sectionHeader: getElement<HTMLDivElement>("section-header"),
-    sectionTitle: getElement<HTMLHeadingElement>("section-title"),
+    sectionTitle: getElement<HTMLButtonElement>("section-title"),
     content: getElement<HTMLDivElement>("content"),
     loading: getElement<HTMLDivElement>("loading"),
     errorState: getElement<HTMLDivElement>("error-state"),

@@ -73,7 +73,7 @@ button {
     inset: 0 0 -20px;
     content: "";
     pointer-events: none;
-    background: rgba(0, 0, 0, .34);
+    background: rgba(0, 0, 0, .54);
     -webkit-backdrop-filter: blur(14px) saturate(130%);
     backdrop-filter: blur(14px) saturate(130%);
     -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 68%, transparent 100%);
@@ -205,7 +205,7 @@ button {
     z-index: -1;
     inset: -22px 0 0;
     content: "";
-    background: rgba(0, 0, 0, .34);
+    background: rgba(0, 0, 0, .58);
     -webkit-backdrop-filter: blur(16px) saturate(140%);
     backdrop-filter: blur(16px) saturate(140%);
     -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 48%, #000 100%);
@@ -232,6 +232,30 @@ button {
     letter-spacing: -.025em;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.section-title-button {
+    max-width: 100%;
+    padding: 0;
+    overflow: hidden;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    letter-spacing: inherit;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.section-title-button:hover {
+    color: rgba(255, 255, 255, .78);
+}
+
+.section-title-button:focus-visible {
+    border-radius: 4px;
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, .72);
 }
 
 .back-button {
@@ -545,6 +569,56 @@ button {
     display: flex;
     flex-direction: column;
     gap: 24px;
+}
+
+.library-poster-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px 12px;
+}
+
+.library-poster-card .thumb-wrapper {
+    aspect-ratio: 2 / 3;
+}
+
+.library-poster-card .resume-label {
+    display: none;
+}
+
+.library-poster-card .watched-indicator {
+    top: 7px;
+    right: 7px;
+    width: 22px;
+    height: 22px;
+}
+
+.library-poster-card .thumb-progress {
+    right: 7px;
+    bottom: 6px;
+    left: 7px;
+}
+
+.library-load-status {
+    display: grid;
+    height: 48px;
+    place-items: center;
+}
+
+.library-loading-spinner {
+    width: 18px;
+    height: 18px;
+    border: 2px solid rgba(235, 235, 245, .22);
+    border-top-color: rgba(235, 235, 245, .76);
+    border-radius: 50%;
+    animation: library-spin .75s linear infinite;
+}
+
+.library-load-status--error {
+    height: 62px;
+}
+
+.library-load-retry {
+    margin-top: 0;
 }
 
 .list-card {
@@ -938,6 +1012,10 @@ button {
 
 @keyframes shimmer {
     to { transform: translateX(100%); }
+}
+
+@keyframes library-spin {
+    to { transform: rotate(1turn); }
 }
 
 @media (prefers-reduced-motion: reduce) {

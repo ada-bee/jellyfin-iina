@@ -1,10 +1,18 @@
+import type { JellyfinBaseItem } from "../shared/jellyfin";
+
 export type ActionHandler = () => void | Promise<void>;
 export type SearchFilter = "all" | "movie" | "series" | "episode";
+export type SearchOrigin = "home" | "library";
 
 export interface LibraryState {
     id: string;
     name: string;
     type: string;
+    items: JellyfinBaseItem[];
+    totalItemCount: number;
+    hasMore: boolean;
+    isLoadingMore: boolean;
+    scrollTop: number;
 }
 
 export interface SeriesState {
@@ -47,6 +55,7 @@ export interface SidebarState {
     preferEpisodeImagesInNextUp: boolean;
     searchQuery: string;
     searchFilter: SearchFilter;
+    searchOrigin: SearchOrigin | null;
     currentLibrary: LibraryState | null;
     currentSeries: SeriesState | null;
     currentSeason: SeasonState | null;
@@ -64,6 +73,7 @@ export const state: SidebarState = {
     preferEpisodeImagesInNextUp: false,
     searchQuery: "",
     searchFilter: "all",
+    searchOrigin: null,
     currentLibrary: null,
     currentSeries: null,
     currentSeason: null,

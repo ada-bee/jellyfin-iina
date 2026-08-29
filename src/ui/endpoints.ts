@@ -9,7 +9,9 @@ import {
 export function buildLibraryItemsEndpoint(
     userId: string,
     libraryId: string,
-    collectionType: string
+    collectionType: string,
+    startIndex: number,
+    limit: number
 ): string {
     const itemType = collectionType === "movies" ? "Movie" : "Series";
     const scope = libraryId ? `ParentId=${encodeURIComponent(libraryId)}` : "Recursive=true";
@@ -18,7 +20,7 @@ export function buildLibraryItemsEndpoint(
     endpoint += `&Fields=${FIELDS_LIBRARY_ITEMS}`;
     endpoint += "&EnableImageTypes=Primary,Backdrop,Thumb";
     endpoint += `&IncludeItemTypes=${itemType}`;
-    endpoint += "&Limit=100";
+    endpoint += `&StartIndex=${startIndex}&Limit=${limit}`;
     return endpoint;
 }
 

@@ -14,6 +14,7 @@ export interface ListCardOptions {
     showSeriesEpisodeCounts?: boolean;
     homePoster?: boolean;
     homeThumbnail?: boolean;
+    libraryPoster?: boolean;
     usePosterImage?: boolean;
     hideRuntime?: boolean;
 }
@@ -34,6 +35,8 @@ export interface CardContext {
 
 let cachedSearchResults: JellyfinBaseItem[] = [];
 let homeRailResizeHandlerInstalled = false;
+let libraryGridObserver: IntersectionObserver | null = null;
+let libraryGridLoadMore: (() => void) | null = null;
 
 export function showLoginView(): void {
     ui.loginView.classList.remove("hidden");
@@ -46,6 +49,7 @@ export function showBrowseView(): void {
 }
 
 export function showLoading(): void {
+    disconnectLibraryGridObserver();
     ui.loading.classList.remove("hidden");
     ui.content.classList.add("hidden");
     ui.errorState.classList.add("hidden");
@@ -53,11 +57,12 @@ export function showLoading(): void {
 
 export function hideLoading(): void {
     ui.loading.classList.add("hidden");
+    ui.errorState.classList.add("hidden");
     ui.content.classList.remove("hidden");
 }
 
 export function renderEmptyState(message: string): void {
-    ui.content.replaceChildren(buildFeedbackState(message, getEmptyStateDetail(message)));
+    replaceContent(buildFeedbackState(message, getEmptyStateDetail(message)));
 }
 
 export function showError(message: string): void {
@@ -69,6 +74,7 @@ export function showError(message: string): void {
 
 export function updateTitle(title: string): void {
     ui.sectionTitle.textContent = title;
+    ui.sectionTitle.setAttribute("aria-label", `Back from ${title}`);
 
     const showHome = title === "Home" && state.breadcrumb.length === 0 && !state.searchQuery;
     const showSearchFilters = title === "Search Results" && Boolean(state.searchQuery);
@@ -84,7 +90,54 @@ export function updateTitle(title: string): void {
 }
 
 export function renderListCards(items: JellyfinBaseItem[], options: ListCardOptions = {}): void {
-    ui.content.replaceChildren(buildMediaList(items, options));
+    replaceContent(buildMediaList(items, options));
+}
+
+export function renderLibraryGrid(
+    items: JellyfinBaseItem[],
+    hasMore: boolean,
+    onLoadMore: () => void
+): void {
+    const grid = document.createElement("div");
+    grid.className = "library-poster-grid";
+    grid.dataset.libraryGrid = "";
+    items.forEach(item => grid.appendChild(buildListCardElement(item, getLibraryPosterOptions())));
+
+    replaceContent(grid);
+    libraryGridLoadMore = onLoadMore;
+    ui.content.classList.add("library-content");
+    updateLibraryLoadStatus(hasMore);
+}
+
+export function appendLibraryGridItems(items: JellyfinBaseItem[], hasMore: boolean): void {
+    const grid = ui.content.querySelector<HTMLElement>("[data-library-grid]");
+    if (!grid) {
+        return;
+    }
+    const fragment = document.createDocumentFragment();
+    items.forEach(item => fragment.appendChild(buildListCardElement(item, getLibraryPosterOptions())));
+    grid.appendChild(fragment);
+    updateLibraryLoadStatus(hasMore);
+}
+
+export function showLibraryGridLoadError(onRetry: () => void): void {
+    disconnectLibraryGridObserver();
+    const status = getOrCreateLibraryLoadStatus();
+    status.classList.add("library-load-status--error");
+    status.removeAttribute("role");
+    status.removeAttribute("aria-label");
+    const retry = document.createElement("button");
+    retry.className = "btn-secondary library-load-retry";
+    retry.type = "button";
+    retry.textContent = "Try Again";
+    retry.addEventListener("click", () => {
+        status.replaceChildren(buildLibraryLoadingSpinner());
+        status.classList.remove("library-load-status--error");
+        status.setAttribute("role", "status");
+        status.setAttribute("aria-label", "Loading more titles");
+        onRetry();
+    });
+    status.replaceChildren(retry);
 }
 
 export function renderHomeSections(
@@ -187,7 +240,7 @@ export function renderHomeSections(
         home.appendChild(section);
     });
 
-    ui.content.replaceChildren(home);
+    replaceContent(home);
     installHomeRailResizeHandler();
     requestAnimationFrame(updateAllHomeRailShadows);
 }
@@ -280,7 +333,7 @@ export function renderSeriesOverview(nextUpItem: JellyfinBaseItem | null, season
         fragment.appendChild(section);
     }
 
-    ui.content.replaceChildren(fragment);
+    replaceContent(fragment);
 }
 
 export function renderSearchResults(items: JellyfinBaseItem[]): void {
@@ -350,7 +403,7 @@ function renderFilteredSearchResults(): void {
     const list = document.createElement("div");
     list.className = "media-list";
     visibleItems.forEach(item => list.appendChild(buildListCardElement(item, getSearchCardOptions(item))));
-    ui.content.replaceChildren(list);
+    replaceContent(list);
 }
 
 function buildContentSection(titleText: string): HTMLElement {
@@ -408,6 +461,7 @@ function buildListCardElement(item: JellyfinBaseItem, options: ListCardOptions):
     card.className = "list-card";
     card.classList.toggle("home-poster-card", Boolean(options.homePoster));
     card.classList.toggle("home-thumbnail-card", Boolean(options.homeThumbnail));
+    card.classList.toggle("library-poster-card", Boolean(options.libraryPoster));
     applyCardContext(card, item, displayName, seriesId, seasonId);
 
     const thumbWrapper = document.createElement("div");
@@ -422,12 +476,13 @@ function buildListCardElement(item: JellyfinBaseItem, options: ListCardOptions):
     image.alt = "";
     image.loading = "lazy";
     thumbWrapper.appendChild(image);
-    if (!options.homePoster) {
+    const artworkOnly = options.homePoster || options.libraryPoster;
+    if (!artworkOnly) {
         thumbWrapper.appendChild(buildPlayOverlay());
     }
 
     const remainingLabel = getRemainingLabel(item);
-    if (remainingLabel && !options.homePoster) {
+    if (remainingLabel && !artworkOnly) {
         const label = document.createElement("div");
         label.className = "resume-label";
         label.textContent = remainingLabel;
@@ -463,7 +518,7 @@ function buildListCardElement(item: JellyfinBaseItem, options: ListCardOptions):
     }
 
     card.appendChild(thumbWrapper);
-    if (!options.homePoster) {
+    if (!artworkOnly) {
         card.appendChild(body);
     }
     return card;
@@ -680,6 +735,75 @@ function getNextUpImageOptions(): ListCardOptions {
         : { useEpisodeThumbnail: false, useSeriesBackdropFallback: true };
 }
 
+function getLibraryPosterOptions(): ListCardOptions {
+    return {
+        libraryPoster: true,
+        usePosterImage: true,
+        showSeriesName: false
+    };
+}
+
+function replaceContent(...nodes: Array<Node | string>): void {
+    disconnectLibraryGridObserver();
+    libraryGridLoadMore = null;
+    ui.content.classList.remove("library-content");
+    ui.content.replaceChildren(...nodes);
+}
+
+function updateLibraryLoadStatus(hasMore: boolean): void {
+    disconnectLibraryGridObserver();
+    ui.content.querySelector("[data-library-load-status]")?.remove();
+    if (!hasMore || !libraryGridLoadMore) {
+        return;
+    }
+
+    const status = getOrCreateLibraryLoadStatus();
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (status.isConnected && libraryGridLoadMore) {
+            observeLibraryLoadStatus(status);
+        }
+    }));
+}
+
+function getOrCreateLibraryLoadStatus(): HTMLElement {
+    const existing = ui.content.querySelector<HTMLElement>("[data-library-load-status]");
+    if (existing) {
+        return existing;
+    }
+    const status = document.createElement("div");
+    status.className = "library-load-status";
+    status.dataset.libraryLoadStatus = "";
+    status.setAttribute("role", "status");
+    status.setAttribute("aria-label", "Loading more titles");
+    status.appendChild(buildLibraryLoadingSpinner());
+    ui.content.appendChild(status);
+    return status;
+}
+
+function buildLibraryLoadingSpinner(): HTMLElement {
+    const spinner = document.createElement("span");
+    spinner.className = "library-loading-spinner";
+    spinner.setAttribute("aria-hidden", "true");
+    return spinner;
+}
+
+function observeLibraryLoadStatus(status: HTMLElement): void {
+    if (!libraryGridLoadMore) {
+        return;
+    }
+    libraryGridObserver = new IntersectionObserver(entries => {
+        if (entries.some(entry => entry.isIntersecting)) {
+            libraryGridLoadMore?.();
+        }
+    }, { rootMargin: "360px 0px" });
+    libraryGridObserver.observe(status);
+}
+
+function disconnectLibraryGridObserver(): void {
+    libraryGridObserver?.disconnect();
+    libraryGridObserver = null;
+}
+
 function getSearchCardOptions(item: JellyfinBaseItem): ListCardOptions {
     if (item.Type === "Episode") {
         return { showSeriesName: true, showEpisodeNumber: true, useEpisodeThumbnail: true };
@@ -726,7 +850,7 @@ function getFilterLabel(filter: SearchFilter): string {
         return "Movies";
     }
     if (filter === "series") {
-        return "Shows";
+        return "Series";
     }
     return "Episodes";
 }
