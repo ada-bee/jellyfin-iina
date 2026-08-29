@@ -1,30 +1,33 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="sidebar.css">
 </head>
 <body>
-    <!-- Login View -->
     <div id="login-view" class="view">
         <div class="login-container">
-            <img class="login-logo" src="assets/jellyfin-horizontal.png" alt="Jellyfin">
+            <div class="login-brand">
+                <img class="login-logo" src="assets/jellyfin-icon.png" alt="">
+                <h1>Jellyfin</h1>
+                <p>Connect to your media server</p>
+            </div>
             <form id="login-form">
                 <div class="form-group">
-                    <label for="server-url">Server URL</label>
-                    <input type="url" id="server-url" placeholder="https://jellyfin.example.com" required>
+                    <label for="server-url">Server</label>
+                    <input type="url" id="server-url" placeholder="https://jellyfin.example.com" autocomplete="url" required>
                 </div>
                 <div class="form-group">
                     <label for="username">Username</label>
-                    <input type="text" id="username" required>
+                    <input type="text" id="username" autocomplete="username" required>
                 </div>
                 <div class="form-group">
                     <label for="password">Password</label>
-                    <input type="password" id="password">
+                    <input type="password" id="password" autocomplete="current-password">
                 </div>
                 <button type="submit" class="btn-primary" id="connect-btn">Connect</button>
-                <div id="login-error" class="error-message"></div>
+                <div id="login-error" class="error-message" role="alert"></div>
             </form>
         </div>
         <div class="legal-note">
@@ -33,66 +36,55 @@
         </div>
     </div>
 
-    <!-- Main Browse View -->
     <div id="browse-view" class="view hidden">
-        <header class="status-header">
-            <div class="status-brand">
-                <div class="jellyfin-logo" aria-hidden="true"></div>
-                <div class="status-text">
-                    <div id="server-name" class="server-name"></div>
-                    <div class="server-details">
-                        <span id="server-host"></span>
-                        <span class="separator">•</span>
-                        <span id="user-name"></span>
-                    </div>
-                </div>
-            </div>
-            <div class="status-actions">
-                <button id="refresh-btn" class="btn-icon" data-clickable title="Home">
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                        <path d="M8 2.2L2 7.2v6.6h4.2V9.4h3.6v4.4H14V7.2L8 2.2z"/>
+        <nav id="navigation-layer" class="navigation-layer hidden" aria-label="Jellyfin navigation">
+            <div id="section-header" class="section-header hidden">
+                <button id="back-btn" class="back-button hidden" data-clickable type="button" title="Back" aria-label="Back">
+                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                        <path d="m11.5 3.5-5 5.5 5 5.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
                     </svg>
                 </button>
-                <button id="logout-btn" class="btn-icon" data-clickable title="Sign Out">
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                        <path d="M6 2v2H3v8h3v2H1V2h5zm4 3l4 3-4 3V9H5V7h5V5z"/>
-                    </svg>
-                </button>
+                <h2><button id="section-title" class="section-title-button" data-clickable type="button"></button></h2>
             </div>
-        </header>
+        </nav>
 
-        <div class="search-bar">
-            <input type="search" id="search-input" placeholder="Search movies and shows" autocomplete="off">
-            <button id="clear-search" class="btn-icon hidden" data-clickable title="Clear search">
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>
-                </svg>
-            </button>
+        <main id="content" class="content"></main>
+
+        <div id="loading" class="loading hidden" aria-label="Loading">
+            <div class="skeleton-card"><div class="skeleton-artwork"></div><div class="skeleton-line skeleton-line--title"></div><div class="skeleton-line"></div></div>
+            <div class="skeleton-card"><div class="skeleton-artwork"></div><div class="skeleton-line skeleton-line--title"></div><div class="skeleton-line"></div></div>
         </div>
 
-        <div id="section-header" class="section-header">
-            <button id="back-btn" class="btn-icon hidden" data-clickable title="Back">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M11 2L5 8l6 6" stroke="currentColor" stroke-width="2" fill="none"/>
-                </svg>
-            </button>
-            <h2 id="section-title">Up Next</h2>
-        </div>
-
-        <!-- Content Area -->
-        <div id="content" class="content">
-            <!-- Dynamically populated -->
-        </div>
-
-        <!-- Loading Indicator -->
-        <div id="loading" class="loading hidden">
-            <div class="spinner"></div>
-        </div>
-
-        <!-- Error State -->
-        <div id="error-state" class="error-state hidden">
+        <div id="error-state" class="feedback-state hidden">
+            <svg class="feedback-icon" width="34" height="34" viewBox="0 0 34 34" fill="none" aria-hidden="true">
+                <path d="M17 3.5 31 28H3L17 3.5Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+                <path d="M17 11v8m0 4v.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            <h3>Couldn’t Load Content</h3>
             <p id="error-message"></p>
-            <button id="retry-btn" class="btn-secondary" data-clickable>Retry</button>
+            <button id="retry-btn" class="btn-secondary" data-clickable type="button">Try Again</button>
+        </div>
+
+        <div class="bottom-search-layer">
+            <div id="search-filters" class="scope-control hidden" role="group" aria-label="Filter results">
+                <button type="button" data-search-filter="all" aria-pressed="true">All</button>
+                <button type="button" data-search-filter="movie" aria-pressed="false">Movies</button>
+                <button type="button" data-search-filter="series" aria-pressed="false">Series</button>
+                <button type="button" data-search-filter="episode" aria-pressed="false">Episodes</button>
+            </div>
+            <div class="search-field" role="search">
+                <svg class="search-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+                    <path d="m10.5 10.5 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+                <input type="search" id="search-input" aria-label="Search" placeholder="Series, Movies, and More" autocomplete="off" spellcheck="false">
+                <button id="clear-search" class="clear-search hidden" data-clickable type="button" title="Clear search" aria-label="Clear search">
+                    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+                        <circle cx="7" cy="7" r="6" fill="currentColor" opacity=".28"/>
+                        <path d="m5 5 4 4m0-4L5 9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                    </svg>
+                </button>
+            </div>
         </div>
     </div>
 

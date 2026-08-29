@@ -1,7 +1,7 @@
 import { authenticateUser, fetchServerName } from "../api";
 import { clearBackdropPreview } from "../backdropPreview";
 import { ui } from "../dom";
-import { showBrowseView, showLoginView, updateServerHeader } from "../render";
+import { showBrowseView, showLoginView } from "../render";
 import { state } from "../state";
 import {
     clearSessionFromStorage,
@@ -45,10 +45,7 @@ export function restoreSessionFromStorage(): boolean {
     state.accessToken = savedSession.accessToken;
     state.userId = savedSession.userId;
     state.username = savedSession.username;
-    const serverHostValue = getServerHost(normalizedUrl);
-    state.serverName = savedSession.serverName || serverHostValue;
-    updateServerHeader(state.serverName, serverHostValue);
-    ui.userName.textContent = savedSession.username;
+    state.serverName = savedSession.serverName || getServerHost(normalizedUrl);
     showBrowseView();
     resetSearchState(false);
     sendAuthUpdated();
@@ -95,8 +92,6 @@ export async function handleLogin(event: Event): Promise<void> {
 
         ui.connectBtn.disabled = false;
         ui.connectBtn.textContent = "Connect";
-        updateServerHeader(state.serverName, serverHostValue);
-        ui.userName.textContent = state.username;
         showBrowseView();
         resetSearchState(false);
         sendAuthUpdated();
@@ -140,8 +135,9 @@ function clearActiveSession(): void {
     state.breadcrumb = [];
     state.currentLibrary = null;
     state.currentSeries = null;
-    state.currentSeason = null;
     state.searchQuery = "";
+    state.searchFilter = "all";
+    state.searchOrigin = null;
     state.lastAction = null;
 
     clearSessionFromStorage();

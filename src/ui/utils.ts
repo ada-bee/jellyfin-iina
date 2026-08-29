@@ -42,10 +42,10 @@ export function formatRuntime(ticks?: number | null): string {
     return `${minutes}m`;
 }
 
-export function formatEpisodeNumber(season?: number | null, episode?: number | null): string {
-    const s = String(season || 0).padStart(2, "0");
-    const e = String(episode || 0).padStart(2, "0");
-    return `S${s}E${e}`;
+export function formatPaddedEpisodeNumber(season?: number | null, episode?: number | null): string {
+    const seasonNumber = String(season ?? 0).padStart(2, "0");
+    const episodeNumber = String(episode ?? 0).padStart(2, "0");
+    return `S${seasonNumber} E${episodeNumber}`;
 }
 
 export function normalizeQuery(value: string): string {

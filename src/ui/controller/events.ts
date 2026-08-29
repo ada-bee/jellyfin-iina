@@ -1,33 +1,45 @@
 import { ui } from "../dom";
 import { cancelScheduledBackdropPreview, scheduleBackdropPreview } from "../backdropPreview";
-import { findListCard, getCardContext, handleContentError } from "../render";
-import { state } from "../state";
+import { findListCard, getCardContext, handleContentError, setSearchFilter } from "../render";
+import { state, type SearchFilter } from "../state";
 import { playItem } from "../playback";
 import {
     handleBack,
     handleClearSearch,
-    handleRefresh,
     handleRetry,
     handleSearchInput,
-    handleSearchSubmit
+    handleSearchSubmit,
+    resetSearchState
 } from "./navigation";
-import { handleLogin, handleLogout } from "./session";
-import { loadEpisodes, loadSeasons } from "./loaders";
+import { handleLogin } from "./session";
+import {
+    loadItems,
+    loadMovie,
+    loadSeriesDetails,
+    retrySelectedSeriesSeason,
+    saveCurrentLibraryScrollPosition,
+    selectSeriesSeason
+} from "./loaders";
 
 export function setupEventListeners(): void {
+    setupNavigationScrollState();
     ui.loginForm.addEventListener("submit", handleLogin);
     ui.backBtn.addEventListener("click", handleBack);
-    ui.logoutBtn.addEventListener("click", handleLogout);
-    ui.refreshBtn.addEventListener("click", handleRefresh);
+    ui.sectionTitle.addEventListener("click", handleBack);
     ui.retryBtn.addEventListener("click", handleRetry);
+    ui.searchFilters.addEventListener("click", handleSearchFilterClick);
     ui.searchInput.addEventListener("input", handleSearchInput);
     ui.searchInput.addEventListener("keydown", (event) => {
         if (event.key === "Enter") {
             handleSearchSubmit(event);
+        } else if (event.key === "Escape") {
+            event.preventDefault();
+            handleClearSearch();
         }
     });
     ui.clearSearchButton.addEventListener("click", handleClearSearch);
     ui.content.addEventListener("click", handleContentClick);
+    ui.content.addEventListener("change", handleContentChange);
     ui.content.addEventListener("keydown", handleContentKeydown);
     ui.content.addEventListener("pointerover", handleContentPointerOver);
     ui.content.addEventListener("pointerout", handleContentPointerOut);
@@ -69,13 +81,73 @@ function handleContentFocusOut(event: FocusEvent): void {
     }
 }
 
+export function setupNavigationScrollState(): void {
+    const updateScrollState = () => {
+        ui.navigationLayer.classList.toggle("navigation-layer--scrolled", window.scrollY > 0);
+    };
+    window.addEventListener("scroll", updateScrollState, { passive: true });
+    updateScrollState();
+}
+
 function handleContentClick(event: MouseEvent): void {
+    const detailPlayButton = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>("[data-detail-play]");
+    if (detailPlayButton) {
+        const id = detailPlayButton.dataset.id || "";
+        if (id) {
+            void playItem(
+                id,
+                detailPlayButton.dataset.name || "Video",
+                Number.parseInt(detailPlayButton.dataset.resume || "0", 10) || 0,
+                {
+                    seriesId: detailPlayButton.dataset.seriesId || "",
+                    seasonId: detailPlayButton.dataset.seasonId || "",
+                    episodeIndex: detailPlayButton.dataset.episodeIndex
+                        ? Number.parseInt(detailPlayButton.dataset.episodeIndex, 10)
+                        : null
+                }
+            );
+        }
+        return;
+    }
+
+    if ((event.target as HTMLElement | null)?.closest("[data-season-retry]")) {
+        void retrySelectedSeriesSeason();
+        return;
+    }
+
+    const libraryLink = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>("[data-home-library]");
+    if (libraryLink) {
+        const collectionType = libraryLink.dataset.homeLibrary || "";
+        const name = libraryLink.dataset.homeLibraryName || "Library";
+        void loadItems("", name, collectionType);
+        return;
+    }
+
     const card = findListCard(event.target);
     if (!card || !ui.content.contains(card)) {
         return;
     }
 
     handleListCardSelection(card);
+}
+
+function handleContentChange(event: Event): void {
+    const select = (event.target as HTMLElement | null)?.closest<HTMLSelectElement>("[data-season-select]");
+    if (select?.value) {
+        void selectSeriesSeason(select.value);
+    }
+}
+
+function handleSearchFilterClick(event: MouseEvent): void {
+    const button = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>("[data-search-filter]");
+    const filter = button?.dataset.searchFilter;
+    if (isSearchFilter(filter)) {
+        setSearchFilter(filter);
+    }
+}
+
+function isSearchFilter(value: string | undefined): value is SearchFilter {
+    return value === "all" || value === "movie" || value === "series" || value === "episode";
 }
 
 function handleContentKeydown(event: KeyboardEvent): void {
@@ -98,15 +170,25 @@ function handleListCardSelection(card: HTMLElement): void {
         return;
     }
 
-    const { id, name, type, resume, context } = details;
+    const { id, name, type, resume, directPlay, context } = details;
 
     if (type === "Series") {
-        void loadSeasons(id, name);
+        if (state.searchQuery) {
+            resetSearchState(false);
+        } else {
+            saveCurrentLibraryScrollPosition();
+        }
+        void loadSeriesDetails(id, name);
         return;
     }
 
-    if (type === "Season") {
-        void loadEpisodes(state.currentSeries?.id || "", id, name);
+    if (type === "Movie" && !directPlay) {
+        if (state.searchQuery) {
+            resetSearchState(false);
+        } else {
+            saveCurrentLibraryScrollPosition();
+        }
+        void loadMovie(id, name);
         return;
     }
 

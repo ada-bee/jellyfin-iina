@@ -1,19 +1,24 @@
+import type { JellyfinBaseItem } from "../shared/jellyfin";
+
 export type ActionHandler = () => void | Promise<void>;
+export type SearchFilter = "all" | "movie" | "series" | "episode";
+export type SearchOrigin = "home" | "library";
 
 export interface LibraryState {
     id: string;
     name: string;
     type: string;
+    items: JellyfinBaseItem[];
+    totalItemCount: number;
+    hasMore: boolean;
+    isLoadingMore: boolean;
+    scrollTop: number;
 }
 
 export interface SeriesState {
     id: string;
     name: string;
-}
-
-export interface SeasonState {
-    id: string;
-    name: string;
+    selectedSeasonId: string;
 }
 
 export type BreadcrumbEntry =
@@ -24,14 +29,13 @@ export type BreadcrumbEntry =
         collectionType: string;
     }
     | {
-        type: "series";
+        type: "movie";
         id: string;
         name: string;
     }
     | {
-        type: "season";
+        type: "series";
         id: string;
-        seriesId: string;
         name: string;
     };
 
@@ -46,9 +50,10 @@ export interface SidebarState {
     backdropPreviewsEnabled: boolean;
     preferEpisodeImagesInNextUp: boolean;
     searchQuery: string;
+    searchFilter: SearchFilter;
+    searchOrigin: SearchOrigin | null;
     currentLibrary: LibraryState | null;
     currentSeries: SeriesState | null;
-    currentSeason: SeasonState | null;
     lastAction: ActionHandler | null;
 }
 
@@ -63,8 +68,9 @@ export const state: SidebarState = {
     backdropPreviewsEnabled: true,
     preferEpisodeImagesInNextUp: false,
     searchQuery: "",
+    searchFilter: "all",
+    searchOrigin: null,
     currentLibrary: null,
     currentSeries: null,
-    currentSeason: null,
     lastAction: null
 };

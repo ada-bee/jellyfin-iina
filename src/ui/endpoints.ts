@@ -9,15 +9,20 @@ import {
 export function buildLibraryItemsEndpoint(
     userId: string,
     libraryId: string,
-    collectionType: string
+    collectionType: string,
+    startIndex: number = 0,
+    limit: number = 60
 ): string {
     const itemType = collectionType === "movies" ? "Movie" : "Series";
     let endpoint = `/Items?userId=${encodeURIComponent(userId)}`;
-    endpoint += `&parentId=${encodeURIComponent(libraryId)}`;
+    endpoint += libraryId
+        ? `&parentId=${encodeURIComponent(libraryId)}`
+        : "&recursive=true";
     endpoint += "&sortBy=SortName&sortOrder=Ascending";
     endpoint += `&fields=${FIELDS_LIBRARY_ITEMS}`;
     endpoint += "&enableImageTypes=Primary,Backdrop,Thumb";
     endpoint += `&includeItemTypes=${itemType}`;
+    endpoint += `&startIndex=${startIndex}&limit=${limit}`;
     return endpoint;
 }
 
@@ -29,7 +34,20 @@ export function buildEpisodesEndpoint(userId: string, seriesId: string, seasonId
 export function buildLatestItemsEndpoint(userId: string, itemType: string, limit: number): string {
     return `/Items/Latest?userId=${encodeURIComponent(userId)}` +
         `&includeItemTypes=${encodeURIComponent(itemType)}&limit=${limit}` +
-        `&fields=${FIELDS_HOME_ITEMS}`;
+        `&fields=${FIELDS_HOME_ITEMS}&groupItems=false`;
+}
+
+export function buildItemsByIdsEndpoint(userId: string, itemIds: string[], itemType: string): string {
+    const ids = itemIds.map(itemId => encodeURIComponent(itemId)).join(",");
+    return `/Items?userId=${encodeURIComponent(userId)}&ids=${ids}` +
+        `&includeItemTypes=${encodeURIComponent(itemType)}` +
+        `&fields=${FIELDS_HOME_ITEMS}&enableImageTypes=Primary,Backdrop,Thumb`;
+}
+
+export function buildNewestSeasonsEndpoint(userId: string, startIndex: number, limit: number): string {
+    return `/Items?userId=${encodeURIComponent(userId)}&recursive=true&includeItemTypes=Season` +
+        `&sortBy=DateCreated&sortOrder=Descending&startIndex=${startIndex}&limit=${limit}` +
+        "&fields=SeriesId,ParentId";
 }
 
 export function buildResumeItemsEndpoint(userId: string): string {
@@ -46,7 +64,7 @@ export function buildSearchEndpoint(userId: string, query: string): string {
         `&userId=${encodeURIComponent(userId)}` +
         "&includeItemTypes=Movie,Series,Episode" +
         `&fields=${FIELDS_SEARCH}` +
-        "&recursive=true&limit=20&sortBy=SortName&sortOrder=Ascending";
+        "&recursive=true&limit=20";
 }
 
 export function buildSeasonsEndpoint(userId: string, seriesId: string): string {
