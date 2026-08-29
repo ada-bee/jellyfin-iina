@@ -9,7 +9,8 @@ import {
     buildJellyfinStreamUrl,
     buildPlaybackHandoff,
     buildPlaybackInfoRequest,
-    selectDirectPlaySource
+    resolveTranscodingPlayMethod,
+    selectPlayableMediaSource
 } from "./playback";
 
 const baseOptions = {
@@ -31,7 +32,7 @@ describe("Jellyfin playback negotiation", () => {
             ]
         };
 
-        expect(selectDirectPlaySource(response).Id).toBe("preferred");
+        expect(selectPlayableMediaSource(response).Id).toBe("preferred");
     });
 
     test("fails clearly when Jellyfin provides no playable source", () => {
@@ -40,7 +41,7 @@ describe("Jellyfin playback negotiation", () => {
             MediaSources: [{ Id: "unusable", SupportsDirectPlay: false }]
         };
 
-        expect(() => selectDirectPlaySource(response)).toThrow(
+        expect(() => selectPlayableMediaSource(response)).toThrow(
             "Jellyfin did not provide a playable media source (NoCompatibleStream)."
         );
     });
@@ -51,8 +52,45 @@ describe("Jellyfin playback negotiation", () => {
             DeviceProfile: IINA_DEVICE_PROFILE,
             EnableDirectPlay: true,
             EnableDirectStream: true,
-            EnableTranscoding: false
+            EnableTranscoding: true
         });
+    });
+
+    test("keeps Jellyfin's source order when the preferred source requires remuxing", () => {
+        const response: JellyfinPlaybackInfoResponse = {
+            PlaySessionId: "session-id",
+            MediaSources: [
+                {
+                    Id: "preferred-remux",
+                    SupportsDirectPlay: false,
+                    SupportsTranscoding: true,
+                    TranscodingUrl: "/Videos/item/master.m3u8?VideoCodec=copy&AudioCodec=aac"
+                },
+                { Id: "alternate-direct", SupportsDirectPlay: true }
+            ]
+        };
+
+        expect(selectPlayableMediaSource(response).Id).toBe("preferred-remux");
+        const handoff = buildPlaybackHandoff(response, baseOptions);
+        expect(handoff.playMethod).toBe("DirectStream");
+        expect(handoff.url).toBe(
+            "https://media.example.test/jellyfin/Videos/item/master.m3u8" +
+            "?VideoCodec=copy&AudioCodec=aac&api_key=secret%20token"
+        );
+    });
+
+    test("reports video encoding as transcoding", () => {
+        expect(resolveTranscodingPlayMethod({
+            TranscodingUrl: "/Videos/item/master.m3u8?VideoCodec=h264&AudioCodec=aac",
+            MediaStreams: [{ Type: "Video" }]
+        })).toBe("Transcode");
+    });
+
+    test("reports audio-only stream copy as direct streaming", () => {
+        expect(resolveTranscodingPlayMethod({
+            TranscodingUrl: "/Audio/item/universal?AudioCodec=copy",
+            MediaStreams: [{ Type: "Audio" }]
+        })).toBe("DirectStream");
     });
 
     test("builds a typed handoff from the selected source", () => {

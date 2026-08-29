@@ -57,17 +57,18 @@ export function buildPlaybackInfoRequest(
         DeviceProfile: deviceProfile,
         EnableDirectPlay: true,
         EnableDirectStream: true,
-        EnableTranscoding: false,
+        EnableTranscoding: true,
         AllowVideoStreamCopy: true,
         AllowAudioStreamCopy: true
     };
 }
 
-export function selectDirectPlaySource(
+export function selectPlayableMediaSource(
     playbackInfo: JellyfinPlaybackInfoResponse
 ): JellyfinMediaSourceInfo {
     const mediaSource = playbackInfo.MediaSources?.find(source => (
-        Boolean(source.Id) && source.SupportsDirectPlay === true
+        Boolean(source.Id)
+        && (source.SupportsDirectPlay === true || Boolean(source.TranscodingUrl))
     ));
     if (mediaSource) {
         return mediaSource;
@@ -86,13 +87,16 @@ export function buildPlaybackHandoff(
         throw new Error("Jellyfin did not provide a playback session.");
     }
 
-    const mediaSource = selectDirectPlaySource(playbackInfo);
+    const mediaSource = selectPlayableMediaSource(playbackInfo);
     const mediaSourceId = mediaSource.Id || "";
-    const url = buildJellyfinStreamUrl({
-        ...options,
-        mediaSourceId,
-        playSessionId
-    });
+    const directPlay = mediaSource.SupportsDirectPlay === true;
+    const url = directPlay
+        ? buildJellyfinStreamUrl({ ...options, mediaSourceId, playSessionId })
+        : buildAuthenticatedDeliveryUrl(
+            options.serverUrl,
+            mediaSource.TranscodingUrl || "",
+            options.accessToken
+        );
     if (!url) {
         throw new Error("Jellyfin returned incomplete playback information.");
     }
@@ -107,7 +111,7 @@ export function buildPlaybackHandoff(
         mediaSourceId,
         playSessionId,
         runtimeTicks: mediaSource.RunTimeTicks || options.runtimeTicks || 0,
-        playMethod: "DirectPlay",
+        playMethod: directPlay ? "DirectPlay" : resolveTranscodingPlayMethod(mediaSource),
         audioStreamIndex: mediaSource.DefaultAudioStreamIndex,
         subtitleStreamIndex: mediaSource.DefaultSubtitleStreamIndex,
         externalSubtitles: buildExternalSubtitleTracks(
@@ -119,6 +123,23 @@ export function buildPlaybackHandoff(
         seasonId: options.seasonId,
         episodeIndex: options.episodeIndex
     };
+}
+
+export function resolveTranscodingPlayMethod(
+    mediaSource: JellyfinMediaSourceInfo
+): "DirectStream" | "Transcode" {
+    const transcodingUrl = mediaSource.TranscodingUrl || "";
+    const videoCodec = getQueryParameter(transcodingUrl, "VideoCodec").toLowerCase();
+    if (videoCodec === "copy") {
+        return "DirectStream";
+    }
+
+    const hasVideo = (mediaSource.MediaStreams || []).some(stream => stream.Type === "Video");
+    const audioCodec = getQueryParameter(transcodingUrl, "AudioCodec").toLowerCase();
+    if (!hasVideo && audioCodec === "copy") {
+        return "DirectStream";
+    }
+    return "Transcode";
 }
 
 export function buildExternalSubtitleTracks(
@@ -207,6 +228,33 @@ function getHttpOrigin(url: string): string {
 
 function hasAccessToken(url: string): boolean {
     return /[?&](?:api_key|access_token|x-emby-token)=/i.test(url);
+}
+
+function getQueryParameter(url: string, requestedKey: string): string {
+    const queryStart = url.indexOf("?");
+    if (queryStart === -1) {
+        return "";
+    }
+
+    const queryEnd = url.indexOf("#", queryStart);
+    const query = url.substring(queryStart + 1, queryEnd === -1 ? url.length : queryEnd);
+    for (const pair of query.split("&")) {
+        const separator = pair.indexOf("=");
+        const rawKey = separator === -1 ? pair : pair.substring(0, separator);
+        if (decodeQueryValue(rawKey).toLowerCase() !== requestedKey.toLowerCase()) {
+            continue;
+        }
+        return decodeQueryValue(separator === -1 ? "" : pair.substring(separator + 1));
+    }
+    return "";
+}
+
+function decodeQueryValue(value: string): string {
+    try {
+        return decodeURIComponent(value.replace(/\+/g, " "));
+    } catch (error) {
+        return value;
+    }
 }
 
 function appendQueryParameter(url: string, key: string, value: string): string {
