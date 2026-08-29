@@ -44,7 +44,7 @@ export function buildSearchEndpoint(userId: string, query: string): string {
         `&UserId=${userId}` +
         "&IncludeItemTypes=Movie,Series,Episode" +
         `&Fields=${FIELDS_SEARCH}` +
-        "&Recursive=true&Limit=20&SortBy=SortName&SortOrder=Ascending";
+        "&Recursive=true&Limit=20";
 }
 
 export function buildSeasonsEndpoint(userId: string, seriesId: string): string {

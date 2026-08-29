@@ -1,7 +1,16 @@
 import { ui } from "../dom";
 import { state } from "../state";
 import { log, normalizeQuery } from "../utils";
-import { loadHome, performSearch, reloadEpisodes, reloadItems, reloadSeasons } from "./loaders";
+import {
+    cancelPendingViewRequest,
+    loadHome,
+    performSearch,
+    reloadEpisodes,
+    reloadItems,
+    reloadSeasons
+} from "./loaders";
+
+let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function updateSearchState(query: string): void {
     state.searchQuery = query;
@@ -9,8 +18,13 @@ export function updateSearchState(query: string): void {
 }
 
 export function resetSearchState(shouldReload: boolean = true): void {
+    cancelScheduledSearch();
     ui.searchInput.value = "";
     updateSearchState("");
+    state.searchFilter = "all";
+    ui.searchFilters.querySelectorAll<HTMLButtonElement>("[data-search-filter]").forEach(button => {
+        button.setAttribute("aria-pressed", String(button.dataset.searchFilter === "all"));
+    });
 
     if (shouldReload) {
         void loadHome();
@@ -28,7 +42,7 @@ export function handleBack(): void {
         state.currentLibrary = null;
         state.currentSeries = null;
         state.currentSeason = null;
-        updateSearchState("");
+        resetSearchState(false);
         void loadHome();
         return;
     }
@@ -57,6 +71,7 @@ export function handleRetry(): void {
 }
 
 export function goHomeFresh(reason: string = ""): void {
+    cancelScheduledSearch();
     state.breadcrumb = [];
     state.currentLibrary = null;
     state.currentSeries = null;
@@ -69,10 +84,6 @@ export function goHomeFresh(reason: string = ""): void {
     void loadHome();
 }
 
-export function handleRefresh(): void {
-    goHomeFresh("home-button");
-}
-
 export function handleSearchInput(event: Event): void {
     const value = (event.target as HTMLInputElement).value;
     const query = normalizeQuery(value);
@@ -80,7 +91,15 @@ export function handleSearchInput(event: Event): void {
 
     if (!query) {
         resetSearchState(true);
+        return;
     }
+
+    resetBrowseContextForSearch();
+    cancelScheduledSearch();
+    searchTimer = setTimeout(() => {
+        searchTimer = null;
+        void performSearch(query);
+    }, 280);
 }
 
 export function handleClearSearch(): void {
@@ -89,6 +108,7 @@ export function handleClearSearch(): void {
 
 export function handleSearchSubmit(event: Event): void {
     event.preventDefault();
+    cancelScheduledSearch();
     const query = normalizeQuery(ui.searchInput.value);
     updateSearchState(query);
 
@@ -97,5 +117,21 @@ export function handleSearchSubmit(event: Event): void {
         return;
     }
 
+    resetBrowseContextForSearch();
     void performSearch(query);
+}
+
+function resetBrowseContextForSearch(): void {
+    cancelPendingViewRequest();
+    state.breadcrumb = [];
+    state.currentLibrary = null;
+    state.currentSeries = null;
+    state.currentSeason = null;
+}
+
+function cancelScheduledSearch(): void {
+    if (searchTimer !== null) {
+        clearTimeout(searchTimer);
+        searchTimer = null;
+    }
 }

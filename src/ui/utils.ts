@@ -47,9 +47,7 @@ export function formatRuntime(ticks?: number | null): string {
 }
 
 export function formatEpisodeNumber(season?: number | null, episode?: number | null): string {
-    const s = String(season || 0).padStart(2, "0");
-    const e = String(episode || 0).padStart(2, "0");
-    return `S${s}E${e}`;
+    return `S${season || 0}E${episode || 0}`;
 }
 
 export function normalizeQuery(value: string): string {

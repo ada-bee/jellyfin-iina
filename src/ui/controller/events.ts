@@ -1,28 +1,30 @@
 import { ui } from "../dom";
-import { findListCard, getCardContext, handleContentError } from "../render";
-import { state } from "../state";
+import { findListCard, getCardContext, handleContentError, setSearchFilter } from "../render";
+import { state, type SearchFilter } from "../state";
 import { playItem } from "../playback";
 import {
     handleBack,
     handleClearSearch,
-    handleRefresh,
     handleRetry,
     handleSearchInput,
-    handleSearchSubmit
+    handleSearchSubmit,
+    resetSearchState
 } from "./navigation";
-import { handleLogin, handleLogout } from "./session";
+import { handleLogin } from "./session";
 import { loadEpisodes, loadSeasons } from "./loaders";
 
 export function setupEventListeners(): void {
     ui.loginForm.addEventListener("submit", handleLogin);
     ui.backBtn.addEventListener("click", handleBack);
-    ui.logoutBtn.addEventListener("click", handleLogout);
-    ui.refreshBtn.addEventListener("click", handleRefresh);
     ui.retryBtn.addEventListener("click", handleRetry);
+    ui.searchFilters.addEventListener("click", handleSearchFilterClick);
     ui.searchInput.addEventListener("input", handleSearchInput);
     ui.searchInput.addEventListener("keydown", (event) => {
         if (event.key === "Enter") {
             handleSearchSubmit(event);
+        } else if (event.key === "Escape") {
+            event.preventDefault();
+            handleClearSearch();
         }
     });
     ui.clearSearchButton.addEventListener("click", handleClearSearch);
@@ -38,6 +40,18 @@ function handleContentClick(event: MouseEvent): void {
     }
 
     handleListCardSelection(card);
+}
+
+function handleSearchFilterClick(event: MouseEvent): void {
+    const button = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>("[data-search-filter]");
+    const filter = button?.dataset.searchFilter;
+    if (isSearchFilter(filter)) {
+        setSearchFilter(filter);
+    }
+}
+
+function isSearchFilter(value: string | undefined): value is SearchFilter {
+    return value === "all" || value === "movie" || value === "series" || value === "episode";
 }
 
 function handleContentKeydown(event: KeyboardEvent): void {
@@ -63,6 +77,9 @@ function handleListCardSelection(card: HTMLElement): void {
     const { id, name, type, resume, context } = details;
 
     if (type === "Series") {
+        if (state.searchQuery) {
+            resetSearchState(false);
+        }
         void loadSeasons(id, name);
         return;
     }

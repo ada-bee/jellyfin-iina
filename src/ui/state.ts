@@ -1,4 +1,5 @@
 export type ActionHandler = () => void | Promise<void>;
+export type SearchFilter = "all" | "movie" | "series" | "episode";
 
 export interface LibraryState {
     id: string;
@@ -45,6 +46,7 @@ export interface SidebarState {
     username: string;
     preferEpisodeImagesInNextUp: boolean;
     searchQuery: string;
+    searchFilter: SearchFilter;
     currentLibrary: LibraryState | null;
     currentSeries: SeriesState | null;
     currentSeason: SeasonState | null;
@@ -61,6 +63,7 @@ export const state: SidebarState = {
     username: "",
     preferEpisodeImagesInNextUp: false,
     searchQuery: "",
+    searchFilter: "all",
     currentLibrary: null,
     currentSeries: null,
     currentSeason: null,
