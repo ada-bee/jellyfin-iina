@@ -109,6 +109,27 @@ export async function handleLogin(event: Event): Promise<void> {
 }
 
 export function handleLogout(): void {
+    clearActiveSession();
+
+    showLoginView();
+    ui.passwordInput.value = "";
+    ui.searchInput.value = "";
+    ui.clearSearchButton.classList.add("hidden");
+}
+
+export function handleAuthenticationFailure(): void {
+    const serverUrl = state.serverUrl;
+    const username = state.username;
+    clearActiveSession();
+
+    ui.serverUrlInput.value = serverUrl;
+    ui.usernameInput.value = username;
+    ui.passwordInput.value = "";
+    ui.loginError.textContent = "Your Jellyfin session expired. Sign in again.";
+    showLoginView();
+}
+
+function clearActiveSession(): void {
     state.serverUrl = "";
     state.serverName = "";
     state.accessToken = "";
@@ -123,11 +144,6 @@ export function handleLogout(): void {
 
     clearSessionFromStorage();
     sendAuthCleared();
-
-    showLoginView();
-    ui.passwordInput.value = "";
-    ui.searchInput.value = "";
-    ui.clearSearchButton.classList.add("hidden");
 }
 
 export function sendAuthUpdated(): void {

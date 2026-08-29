@@ -1,11 +1,12 @@
 import type { SidebarPreferencesPayload } from "../../shared/messages";
 
 import { MESSAGE_NAMES } from "../../shared/messages";
+import { setAuthenticationFailureHandler } from "../api";
 import { state } from "../state";
 import { getDeviceId } from "../storage";
 import { setupEventListeners } from "./events";
 import { goHomeFresh } from "./navigation";
-import { restoreSessionFromStorage } from "./session";
+import { handleAuthenticationFailure, restoreSessionFromStorage } from "./session";
 
 function applySidebarPreferences(payload: SidebarPreferencesPayload): void {
     const preferEpisodeImagesInNextUp = Boolean(payload?.preferEpisodeImagesInNextUp);
@@ -15,6 +16,8 @@ function applySidebarPreferences(payload: SidebarPreferencesPayload): void {
 export function initSidebar(): void {
     let sidebarReady = false;
     let pendingSidebarRefresh = false;
+
+    setAuthenticationFailureHandler(handleAuthenticationFailure);
 
     iina.onMessage(MESSAGE_NAMES.SidebarPreferences, (payload: SidebarPreferencesPayload) => {
         applySidebarPreferences(payload);

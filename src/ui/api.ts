@@ -10,11 +10,19 @@ import { IINA_DEVICE_PROFILE } from "../shared/deviceProfile";
 import { buildPlaybackInfoRequest } from "../shared/playback";
 
 import { CLIENT_NAME, CLIENT_VERSION, DEVICE_NAME, ITEM_DETAILS_FIELDS } from "./constants";
+import { isConfirmedAuthenticationFailure, JellyfinApiError } from "./apiError";
 import { state } from "./state";
 import { getDeviceId } from "./storage";
 import { normalizeServerUrl } from "./utils";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+type AuthenticationFailureHandler = () => void;
+
+let authenticationFailureHandler: AuthenticationFailureHandler | null = null;
+
+export function setAuthenticationFailureHandler(handler: AuthenticationFailureHandler): void {
+    authenticationFailureHandler = handler;
+}
 
 function buildAuthHeader(accessToken: string): string {
     return buildMediaBrowserAuthorizationHeader({
@@ -45,7 +53,10 @@ export async function authenticateUser(
     });
 
     if (!response.ok) {
-        throw new Error("Authentication failed. Check your credentials.");
+        if (response.status === 401) {
+            throw new Error("Authentication failed. Check your credentials.");
+        }
+        throw new JellyfinApiError(response.status, "/Users/AuthenticateByName");
     }
 
     return await response.json();
@@ -70,14 +81,11 @@ export async function apiRequest<T>(method: HttpMethod, endpoint: string, data?:
 
     const response = await fetch(url, options);
     if (!response.ok) {
-        let errorBody = "";
-        try {
-            errorBody = await response.text();
-        } catch (error) {
-            errorBody = "";
+        const error = new JellyfinApiError(response.status, endpoint);
+        if (response.status === 401 && state.accessToken && authenticationFailureHandler) {
+            authenticationFailureHandler();
         }
-        const detail = errorBody ? ` - ${errorBody.slice(0, 200)}` : "";
-        throw new Error(`API Error: ${response.status} ${endpoint}${detail}`);
+        throw error;
     }
 
     if (response.status === 204) {
@@ -102,6 +110,9 @@ export async function fetchServerName(): Promise<string> {
         const systemInfo = await apiRequest<JellyfinPublicSystemInfo>("GET", "/System/Info/Public");
         return systemInfo?.ServerName || "";
     } catch (error) {
+        if (isConfirmedAuthenticationFailure(error)) {
+            throw error;
+        }
         console.error("Failed to fetch server name:", error);
         return "";
     }
