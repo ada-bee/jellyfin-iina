@@ -2,6 +2,8 @@
 
 Plugin for accessing Movies and TV series from your Jellyfin server in IINA. Displays a simplified view of your library that lets you browse and play items right from IINA. **Not affiliated with the official Jellyfin Project.**
 
+Version 3 requires Jellyfin 12 and IINA 1.4.4 or newer. Use the existing 2.x release with older Jellyfin servers.
+
 If you like this plugin you might also be interested in [YouTube IINA Plugin](https://github.com/ada-bee/youtube-iina).
 
 ## Installation
@@ -19,10 +21,11 @@ If you like this plugin you might also be interested in [YouTube IINA Plugin](ht
 
 ## Features
 
-- Direct stream playback from Jellyfin. Transcoding is currently not supported.
+- Jellyfin-negotiated direct play, remux, and server-required transcoding.
 - Library browsing. Home screen shows Next Up and Recently Added. You can search for anything else.
 - Playback progress reporting back to the Jellyfin server.
 - Resume playback from last position.
+- External subtitles through IINA's native track controls.
 - Auto-play next episode (can be disabled). Next episode is added to the mpv playlist for native feel and media key support.
 - Intro-skipper integration (can be disabled). Clickable Skip button shows up during Intro/Credits similarly to the web interface.
 
