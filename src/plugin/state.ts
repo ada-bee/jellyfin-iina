@@ -1,17 +1,12 @@
 import type { AuthUpdatedPayload } from "../shared/messages";
 import type { PlaybackContext } from "../shared/jellyfin";
 import type { StoppedPlayback } from "../shared/playbackLifecycle";
+import type { NormalizedSegment } from "../shared/segments";
 
 import { PlaybackLifecycle } from "../shared/playbackLifecycle";
 import { normalizeServerUrl } from "./utils";
 
 export interface AuthState extends AuthUpdatedPayload {}
-
-export interface NormalizedSegment {
-    type: "Intro" | "Outro";
-    startSeconds: number | null;
-    endSeconds: number | null;
-}
 
 export interface PlaybackState extends PlaybackContext {
     reportingStarted: boolean;

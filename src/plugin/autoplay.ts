@@ -1,5 +1,10 @@
 import type { JellyfinBaseItem, JellyfinBaseItemQuery, JellyfinPlaybackInfoResponse } from "../shared/jellyfin";
 
+import {
+    findFirstEpisodeInSeason,
+    findNextEpisodeInSeason,
+    getFollowingSeasons
+} from "../shared/autoplay";
 import { IINA_DEVICE_PROFILE } from "../shared/deviceProfile";
 import {
     buildJellyfinWindowTitle,
@@ -184,7 +189,7 @@ async function resolveSequentialNextEpisode(
     episodeIndex: number
 ): Promise<JellyfinBaseItem | null> {
     const episodes = await fetchEpisodes(seriesId, seasonId);
-    const nextEpisode = episodes.find((item) => item.IndexNumber === episodeIndex + 1);
+    const nextEpisode = findNextEpisodeInSeason(episodes, episodeIndex);
     if (nextEpisode) {
         return nextEpisode;
     }
@@ -194,36 +199,19 @@ async function resolveSequentialNextEpisode(
         return null;
     }
 
-    const sortedSeasons = [...seasons].sort((a, b) => {
-        if (a.IndexNumber === undefined || a.IndexNumber === null) {
-            return 1;
+    for (const nextSeason of getFollowingSeasons(seasons, seasonId)) {
+        if (!nextSeason.Id) {
+            continue;
         }
-        if (b.IndexNumber === undefined || b.IndexNumber === null) {
-            return -1;
+        const nextEpisodeInSeason = findFirstEpisodeInSeason(
+            await fetchEpisodes(seriesId, nextSeason.Id)
+        );
+        if (nextEpisodeInSeason) {
+            return nextEpisodeInSeason;
         }
-        return a.IndexNumber - b.IndexNumber;
-    });
-
-    const currentIndex = sortedSeasons.findIndex((season) => season.Id === seasonId);
-    if (currentIndex === -1) {
-        return null;
     }
 
-    const nextSeason = sortedSeasons[currentIndex + 1];
-    if (!nextSeason) {
-        return null;
-    }
-
-    const nextSeasonEpisodes = await fetchEpisodes(seriesId, nextSeason.Id || "");
-    if (nextSeasonEpisodes.length === 0) {
-        return null;
-    }
-
-    const sortedByIndex = nextSeasonEpisodes
-        .filter((item) => item.IndexNumber !== null && item.IndexNumber !== undefined)
-        .sort((a, b) => (a.IndexNumber || 0) - (b.IndexNumber || 0));
-
-    return sortedByIndex[0] || nextSeasonEpisodes[0] || null;
+    return null;
 }
 
 async function buildAutoplayStream(itemId: string, context: {

@@ -1,12 +1,14 @@
 import type { JellyfinMediaSegmentQuery } from "../shared/jellyfin";
+import type { NormalizedSegment } from "../shared/segments";
+
+import { getActiveSegment, normalizeSegments, shouldShowSkipOverlay } from "../shared/segments";
 
 import {
     SKIP_SEGMENT_POLL_INTERVAL_MS,
-    SKIP_SEGMENT_PREF_KEY,
-    TICKS_PER_SECOND
+    SKIP_SEGMENT_PREF_KEY
 } from "./constants";
 import { requestJson } from "./http";
-import { getCurrentPlayback, NormalizedSegment } from "./state";
+import { getCurrentPlayback } from "./state";
 import { formatError } from "./utils";
 
 const { console, core, mpv, overlay, preferences } = iina;
@@ -49,76 +51,6 @@ function isSkipSegmentsEnabled(): boolean {
         return true;
     }
     return Boolean(value);
-}
-
-function shouldShowSkipOverlay(segment: NormalizedSegment | null): boolean {
-    if (!segment) {
-        return false;
-    }
-    if (segment.endSeconds === null || segment.endSeconds === undefined) {
-        return false;
-    }
-    if (segment.startSeconds === null || segment.startSeconds === undefined) {
-        return false;
-    }
-    return segment.endSeconds > segment.startSeconds;
-}
-
-function normalizeSegments(
-    segments: { Type?: string; StartTicks?: number | null; EndTicks?: number | null }[],
-    runtimeTicks: number
-): NormalizedSegment[] {
-    const runtimeSeconds = runtimeTicks ? runtimeTicks / TICKS_PER_SECOND : 0;
-    const fallbackDuration = core.status.duration;
-    const resolvedRuntime = runtimeSeconds || (typeof fallbackDuration === "number" ? fallbackDuration : 0);
-
-    return (segments || [])
-        .map((segment) => {
-            const type = segment.Type === "Intro" || segment.Type === "Outro" ? segment.Type : null;
-            if (!type) {
-                return null;
-            }
-            const startTicks = segment.StartTicks;
-            const endTicks = segment.EndTicks;
-            const hasStart = typeof startTicks === "number";
-            const hasEnd = typeof endTicks === "number";
-            let startSeconds = hasStart ? startTicks / TICKS_PER_SECOND : null;
-            let endSeconds = hasEnd ? endTicks / TICKS_PER_SECOND : null;
-
-            if (type === "Intro" && startSeconds === null && endSeconds !== null) {
-                startSeconds = 0;
-            }
-
-            if (type === "Outro" && endSeconds === null && resolvedRuntime > 0) {
-                endSeconds = resolvedRuntime;
-            }
-
-            return {
-                type: type,
-                startSeconds: startSeconds,
-                endSeconds: endSeconds
-            };
-        })
-        .filter((segment): segment is NormalizedSegment => Boolean(segment));
-}
-
-function getActiveSegment(positionSeconds: number, segments: NormalizedSegment[]): NormalizedSegment | null {
-    if (!segments || !segments.length) {
-        return null;
-    }
-    const active = segments.filter((segment) => {
-        if (segment.startSeconds === null || segment.endSeconds === null) {
-            return false;
-        }
-        return positionSeconds >= segment.startSeconds && positionSeconds < segment.endSeconds;
-    });
-
-    if (!active.length) {
-        return null;
-    }
-
-    const introSegment = active.find((segment) => segment.type === "Intro");
-    return introSegment || active[0];
 }
 
 function getSkipLabel(segment: NormalizedSegment | null): string {
@@ -226,7 +158,12 @@ async function requestMediaSegments(): Promise<void> {
             return;
         }
 
-        latestPlayback.segments = normalizeSegments(segments, latestPlayback.runtimeTicks);
+        const fallbackDuration = typeof core.status.duration === "number" ? core.status.duration : 0;
+        latestPlayback.segments = normalizeSegments(
+            segments,
+            latestPlayback.runtimeTicks,
+            fallbackDuration
+        );
     } catch (error) {
         console.error(`Jellyfin: Failed to fetch media segments: ${formatError(error)}`);
         const latestPlayback = getCurrentPlayback();
