@@ -19,6 +19,7 @@ import { clearPlaybackHandoffs, registerPlaybackHandoff, takePlaybackHandoff } f
 import { requestAutoplayNextEpisode, resetPlaylistAfterReplace, shouldRequestAutoplay } from "./autoplay";
 import { clearSegmentState, startSegmentPolling } from "./segments";
 import { loadExternalSubtitles } from "./subtitles";
+import { syncSelectedTrackIndexes } from "./tracks";
 import {
     getAuthState,
     getCurrentPlayback,
@@ -141,6 +142,21 @@ export function initializePlaybackHandlers(options: PlaybackHandlersOptions): vo
         }
     });
 
+    const handleTrackChange = () => {
+        const playback = getCurrentPlayback();
+        if (!playback) {
+            return;
+        }
+        if (!playback.reportingStarted) {
+            syncSelectedTrackIndexes(playback);
+            return;
+        }
+        void reportPlaybackProgress(mpv.getFlag("pause"));
+    };
+
+    event.on("mpv.aid.changed", handleTrackChange);
+    event.on("mpv.sid.changed", handleTrackChange);
+
     const handleShutdown = (reason: string) => {
         clearPlaybackState(reason);
     };
@@ -158,6 +174,7 @@ function buildPlaybackState(handoff: PlaybackHandoff): PlaybackState {
     const { url: _url, ...context } = handoff;
     return {
         ...context,
+        reportingStarted: false,
         autoplayQueued: false,
         autoplayRequestId: 0,
         nextItemId: "",
@@ -185,6 +202,7 @@ function startPlaybackSession(playback: PlaybackState, options: PlaybackHandlers
     }
 
     loadExternalSubtitles(playback);
+    playback.reportingStarted = true;
     void reportPlaybackStart();
     startSegmentPolling();
 
@@ -245,6 +263,7 @@ async function reportPlaybackStart(): Promise<void> {
     if (!httpContext) {
         return;
     }
+    syncSelectedTrackIndexes(playback);
     logDebug("Jellyfin: Reporting playback start");
     logDebug("Jellyfin: ItemId:", playback.itemId, "PlaySessionId:", playback.playSessionId);
 
@@ -279,6 +298,7 @@ async function reportPlaybackProgress(isPaused: boolean): Promise<void> {
     if (!httpContext) {
         return;
     }
+    syncSelectedTrackIndexes(playback);
 
     try {
         const body: JellyfinPlaybackProgressInfo = {

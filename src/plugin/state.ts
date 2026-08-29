@@ -14,6 +14,7 @@ export interface NormalizedSegment {
 }
 
 export interface PlaybackState extends PlaybackContext {
+    reportingStarted: boolean;
     isEpisode: boolean;
     autoplayQueued: boolean;
     autoplayRequestId: number;
