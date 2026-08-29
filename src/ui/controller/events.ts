@@ -23,6 +23,7 @@ import {
 } from "./loaders";
 
 let scrollStateObserver: ResizeObserver | null = null;
+const NAVIGATION_ELEVATION_DISTANCE = 24;
 
 export function setupEventListeners(): void {
     setupNavigationScrollState();
@@ -88,7 +89,11 @@ export function setupNavigationScrollState(): void {
         return;
     }
     const updateScrollState = () => {
-        ui.navigationLayer.classList.toggle("navigation-layer--scrolled", window.scrollY > 0);
+        const navigationElevation = Math.min(
+            Math.max(window.scrollY, 0) / NAVIGATION_ELEVATION_DISTANCE,
+            1
+        );
+        ui.navigationLayer.style.setProperty("--navigation-elevation", navigationElevation.toFixed(3));
         const pageOverflows = document.documentElement.scrollHeight > window.innerHeight + 1;
         const contentOverflows = ui.content.scrollHeight > ui.content.clientHeight + 1;
         const hasVerticalOverflow = pageOverflows || contentOverflows;

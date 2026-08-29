@@ -78,12 +78,8 @@ button {
     backdrop-filter: blur(14px) saturate(130%);
     -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 68%, transparent 100%);
     mask-image: linear-gradient(to bottom, #000 0, #000 68%, transparent 100%);
-    opacity: 0;
-    transition: opacity 140ms ease;
-}
-
-.navigation-layer--scrolled::before {
-    opacity: 1;
+    opacity: var(--navigation-elevation, 0);
+    will-change: opacity;
 }
 
 .search-field {
@@ -850,19 +846,14 @@ button {
     margin-top: 17px;
 }
 
-.media-detail-info h1 {
-    color: var(--text);
-    font-size: 23px;
-    font-weight: 720;
-    line-height: 1.16;
-    letter-spacing: -.032em;
-}
-
 .media-detail-meta {
-    margin-top: 6px;
     color: var(--secondary);
     font-size: 14px;
     line-height: 1.45;
+}
+
+.media-detail-info > :first-child {
+    margin-top: 0;
 }
 
 .media-detail-watched {

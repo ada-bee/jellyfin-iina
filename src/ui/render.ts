@@ -550,9 +550,6 @@ function buildMediaDetails(
 function buildMediaDetailInfo(item: JellyfinBaseItem, metadataText: string): HTMLElement {
     const info = document.createElement("div");
     info.className = "media-detail-info";
-    const title = document.createElement("h1");
-    title.textContent = String(item.Name || "Untitled");
-    info.appendChild(title);
 
     if (metadataText) {
         const metadata = document.createElement("p");
