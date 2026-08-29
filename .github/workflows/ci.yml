@@ -1,14 +1,11 @@
-name: Release
+name: CI
 
 on:
-  release:
-    types: [published]
-
-permissions:
-  contents: write
+  push:
+  pull_request:
 
 jobs:
-  build:
+  verify:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -24,9 +21,3 @@ jobs:
 
       - name: Verify and package
         run: bun run ci
-
-      - name: Upload release asset
-        uses: softprops/action-gh-release@v2
-        with:
-          files: xyz.brbc.jellyfin.iinaplugin.iinaplgz
-          token: ${{ github.token }}

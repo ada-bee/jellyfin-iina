@@ -4,13 +4,17 @@
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc --noEmit -p tsconfig.plugin.json && tsc --noEmit -p tsconfig.ui.json",
+    "verify": "bun run test && bun run typecheck && bun run verify:root-info",
     "build": "bun run build:plugin && bun run build:ui",
     "build:plugin": "bun build src/plugin/main.ts src/plugin/global.ts --outdir xyz.brbc.jellyfin.iinaplugin/dist --target=browser --format=iife",
     "build:ui": "bun build src/ui/sidebar.ts --outdir xyz.brbc.jellyfin.iinaplugin/ui/dist --target=browser --format=iife",
     "clean": "rm -rf xyz.brbc.jellyfin.iinaplugin/dist xyz.brbc.jellyfin.iinaplugin/ui/dist",
     "sync:root-info": "bun scripts/sync-root-info.js",
     "verify:root-info": "bun scripts/verify-root-info.js",
-    "verify:built-client-version": "bun scripts/verify-built-client-version.js"
+    "verify:built-client-version": "bun scripts/verify-built-client-version.js",
+    "package": "bun run build && bun run verify:built-client-version && bun scripts/package-plugin.js && bun run verify:archive",
+    "verify:archive": "bun scripts/verify-plugin-archive.js",
+    "ci": "bun run verify && bun run package"
   },
   "devDependencies": {
     "@jellyfin/sdk": "^0.13.0",
