@@ -18,11 +18,7 @@ export interface LibraryState {
 export interface SeriesState {
     id: string;
     name: string;
-}
-
-export interface SeasonState {
-    id: string;
-    name: string;
+    selectedSeasonId: string;
 }
 
 export type BreadcrumbEntry =
@@ -33,14 +29,13 @@ export type BreadcrumbEntry =
         collectionType: string;
     }
     | {
-        type: "series";
+        type: "movie";
         id: string;
         name: string;
     }
     | {
-        type: "season";
+        type: "series";
         id: string;
-        seriesId: string;
         name: string;
     };
 
@@ -58,7 +53,6 @@ export interface SidebarState {
     searchOrigin: SearchOrigin | null;
     currentLibrary: LibraryState | null;
     currentSeries: SeriesState | null;
-    currentSeason: SeasonState | null;
     lastAction: ActionHandler | null;
 }
 
@@ -76,6 +70,5 @@ export const state: SidebarState = {
     searchOrigin: null,
     currentLibrary: null,
     currentSeries: null,
-    currentSeason: null,
     lastAction: null
 };

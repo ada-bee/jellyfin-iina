@@ -1,14 +1,15 @@
 import type { JellyfinBaseItem } from "../../shared/jellyfin";
 
-import { apiRequest } from "../api";
+import { apiRequest, fetchItemDetails } from "../api";
 import {
     appendLibraryGridItems,
     renderEmptyState,
     renderHomeSections,
     renderLibraryGrid,
-    renderListCards,
+    renderMovieDetails,
     renderSearchResults,
-    renderSeriesOverview,
+    renderSeriesDetails,
+    renderSeriesEpisodes,
     showLibraryGridLoadError,
     showError,
     showLoading,
@@ -34,6 +35,10 @@ let viewRequestId = 0;
 const LIBRARY_PAGE_SIZE = 60;
 const homeViewCache = new Map<string, HomeViewData>();
 const libraryViewCache = new Map<string, LibraryState>();
+const movieDetailsCache = new Map<string, JellyfinBaseItem>();
+const seriesDetailsCache = new Map<string, SeriesViewData>();
+let currentSeriesView: SeriesViewData | null = null;
+let seriesSeasonRequestId = 0;
 
 interface LibraryLoadOptions {
     libraryId: string;
@@ -49,8 +54,17 @@ interface HomeViewData {
     recentSeries: JellyfinBaseItem[];
 }
 
+interface SeriesViewData {
+    details: JellyfinBaseItem;
+    seasons: JellyfinBaseItem[];
+    nextUpItem: JellyfinBaseItem | null;
+    selectedSeasonId: string;
+    episodesBySeason: Map<string, JellyfinBaseItem[]>;
+}
+
 export function cancelPendingViewRequest(): void {
     viewRequestId += 1;
+    seriesSeasonRequestId += 1;
 }
 
 async function fetchAndRenderLibraryItems(options: LibraryLoadOptions): Promise<void> {
@@ -137,7 +151,7 @@ async function fetchAndRenderLibraryItems(options: LibraryLoadOptions): Promise<
 function setCurrentLibraryContext(library: LibraryState, options: LibraryLoadOptions): void {
     state.currentLibrary = library;
     state.currentSeries = null;
-    state.currentSeason = null;
+    currentSeriesView = null;
     if (options.addBreadcrumb) {
         state.breadcrumb = [{
             type: "library",
@@ -205,102 +219,212 @@ function isCurrentLibraryView(ignoreSearch: boolean = false): boolean {
     return current?.type === "library" && (ignoreSearch || !state.searchQuery);
 }
 
-async function fetchAndRenderSeasons(options: {
+async function fetchAndRenderMovieDetails(options: {
+    movieId: string;
+    movieName: string;
+    addBreadcrumb: boolean;
+}): Promise<void> {
+    currentSeriesView = null;
+    state.currentSeries = null;
+    if (options.addBreadcrumb) {
+        const current = state.breadcrumb[state.breadcrumb.length - 1];
+        if (current?.type !== "movie" || current.id !== options.movieId) {
+            state.breadcrumb.push({ type: "movie", id: options.movieId, name: options.movieName });
+        }
+    }
+
+    const requestId = ++viewRequestId;
+    const cacheKey = `${getSessionCacheKey()}\u0000movie\u0000${options.movieId}`;
+    const cachedMovie = movieDetailsCache.get(cacheKey);
+    state.lastAction = () => fetchAndRenderMovieDetails({ ...options, addBreadcrumb: false });
+    updateTitle(options.movieName);
+    window.scrollTo(0, 0);
+
+    if (cachedMovie) {
+        hideLoading();
+        renderMovieDetails(cachedMovie);
+        return;
+    }
+
+    showLoading();
+    try {
+        const movie = await fetchItemDetails(options.movieId);
+        if (requestId !== viewRequestId) {
+            return;
+        }
+        if (!movie) {
+            throw new Error("Movie details are unavailable");
+        }
+        movieDetailsCache.set(cacheKey, movie);
+        updateTitle(String(movie.Name || options.movieName));
+        hideLoading();
+        renderMovieDetails(movie);
+    } catch (error) {
+        if (requestId !== viewRequestId) {
+            return;
+        }
+        showError(error instanceof Error ? error.message : "Failed to load movie details");
+    }
+}
+
+async function fetchAndRenderSeriesDetails(options: {
     seriesId: string;
     seriesName: string;
     addBreadcrumb: boolean;
 }): Promise<void> {
-    const requestId = ++viewRequestId;
-    updateTitle(options.seriesName);
-    showLoading();
+    if (options.addBreadcrumb) {
+        const current = state.breadcrumb[state.breadcrumb.length - 1];
+        if (current?.type !== "series" || current.id !== options.seriesId) {
+            state.breadcrumb.push({ type: "series", id: options.seriesId, name: options.seriesName });
+        }
+    }
 
+    const requestId = ++viewRequestId;
+    const cacheKey = getSeriesDetailsCacheKey(options.seriesId);
+    updateTitle(options.seriesName);
+    window.scrollTo(0, 0);
+    state.lastAction = () => fetchAndRenderSeriesDetails({ ...options, addBreadcrumb: false });
+
+    const cachedSeries = seriesDetailsCache.get(cacheKey);
+    if (cachedSeries) {
+        setCurrentSeriesView(cachedSeries);
+        hideLoading();
+        renderSeriesView(cachedSeries, getSeriesEpisodeLoadState(cachedSeries), 0);
+        if (cachedSeries.selectedSeasonId && !cachedSeries.episodesBySeason.has(cachedSeries.selectedSeasonId)) {
+            void loadSeriesSeason(cachedSeries, cachedSeries.selectedSeasonId, 0, false);
+        }
+        return;
+    }
+
+    showLoading();
     try {
-        const [nextUpItem, seasons] = await Promise.all([
+        const [details, nextUpItem, seasons] = await Promise.all([
+            fetchItemDetails(options.seriesId),
             loadNextUpForSeries(options.seriesId),
             fetchSeasons(options.seriesId)
         ]);
         if (requestId !== viewRequestId) {
             return;
         }
-
-        state.currentSeries = { id: options.seriesId, name: options.seriesName };
-        state.lastAction = () => fetchAndRenderSeasons({
-            seriesId: options.seriesId,
-            seriesName: options.seriesName,
-            addBreadcrumb: false
-        });
-
-        if (options.addBreadcrumb) {
-            state.breadcrumb.push({ type: "series", id: options.seriesId, name: options.seriesName });
+        if (!details) {
+            throw new Error("Series details are unavailable");
         }
-
-        updateTitle(state.breadcrumb[state.breadcrumb.length - 1]?.name || options.seriesName);
+        const view: SeriesViewData = {
+            details,
+            seasons,
+            nextUpItem,
+            selectedSeasonId: getDefaultSeasonId(seasons, nextUpItem),
+            episodesBySeason: new Map<string, JellyfinBaseItem[]>()
+        };
+        seriesDetailsCache.set(cacheKey, view);
+        setCurrentSeriesView(view);
+        updateTitle(String(details.Name || options.seriesName));
         hideLoading();
-        if (seasons.length === 0 && !nextUpItem) {
-            renderEmptyState("No seasons found");
-            return;
+        if (view.selectedSeasonId) {
+            renderSeriesView(view, "loading", 0);
+            void loadSeriesSeason(view, view.selectedSeasonId, 0, false);
+        } else {
+            renderSeriesView(view, "ready", 0);
         }
-        renderSeriesOverview(nextUpItem, seasons);
     } catch (error) {
         if (requestId !== viewRequestId) {
             return;
         }
-        showError(error instanceof Error ? error.message : "Failed to load seasons");
+        showError(error instanceof Error ? error.message : "Failed to load series details");
     }
 }
 
-async function fetchAndRenderEpisodes(options: {
-    seriesId: string;
-    seasonId: string;
-    seasonName: string;
-    addBreadcrumb: boolean;
-}): Promise<void> {
-    const requestId = ++viewRequestId;
-    updateTitle(options.seasonName);
-    showLoading();
-
-    try {
-        const endpoint = buildEpisodesEndpoint(state.userId, options.seriesId, options.seasonId);
-        const data = await apiRequest<{ Items?: JellyfinBaseItem[] }>("GET", endpoint);
-        if (requestId !== viewRequestId) {
-            return;
-        }
-        const episodes = data?.Items || [];
-
-        state.currentSeason = { id: options.seasonId, name: options.seasonName };
-        state.lastAction = () => fetchAndRenderEpisodes({
-            seriesId: options.seriesId,
-            seasonId: options.seasonId,
-            seasonName: options.seasonName,
-            addBreadcrumb: false
-        });
-
-        if (options.addBreadcrumb) {
-            state.breadcrumb.push({
-                type: "season",
-                id: options.seasonId,
-                seriesId: options.seriesId,
-                name: options.seasonName
-            });
-        }
-
-        updateTitle(state.breadcrumb[state.breadcrumb.length - 1]?.name || options.seasonName);
-        hideLoading();
-        if (episodes.length === 0) {
-            renderEmptyState("No episodes found");
-            return;
-        }
-        renderListCards(episodes, {
-            showSeriesName: false,
-            showEpisodeNumber: true,
-            useEpisodeThumbnail: true
-        });
-    } catch (error) {
-        if (requestId !== viewRequestId) {
-            return;
-        }
-        showError(error instanceof Error ? error.message : "Failed to load episodes");
+async function loadSeriesSeason(
+    view: SeriesViewData,
+    seasonId: string,
+    scrollTop: number,
+    forceReload: boolean
+): Promise<void> {
+    view.selectedSeasonId = seasonId;
+    if (state.currentSeries) {
+        state.currentSeries.selectedSeasonId = seasonId;
     }
+    const cachedEpisodes = forceReload ? undefined : view.episodesBySeason.get(seasonId);
+    if (cachedEpisodes) {
+        renderSeriesSeason(view, "ready", scrollTop);
+        return;
+    }
+
+    const requestId = ++seriesSeasonRequestId;
+    renderSeriesSeason(view, "loading", scrollTop);
+    try {
+        const endpoint = buildEpisodesEndpoint(state.userId, view.details.Id || "", seasonId);
+        const data = await apiRequest<{ Items?: JellyfinBaseItem[] }>("GET", endpoint);
+        if (
+            requestId !== seriesSeasonRequestId ||
+            currentSeriesView !== view ||
+            view.selectedSeasonId !== seasonId
+        ) {
+            return;
+        }
+        view.episodesBySeason.set(seasonId, data?.Items || []);
+        renderSeriesSeason(view, "ready", scrollTop);
+    } catch {
+        if (requestId !== seriesSeasonRequestId || currentSeriesView !== view) {
+            return;
+        }
+        renderSeriesSeason(view, "error", scrollTop);
+    }
+}
+
+function setCurrentSeriesView(view: SeriesViewData): void {
+    currentSeriesView = view;
+    state.currentSeries = {
+        id: view.details.Id || "",
+        name: String(view.details.Name || "Series"),
+        selectedSeasonId: view.selectedSeasonId
+    };
+}
+
+function getDefaultSeasonId(seasons: JellyfinBaseItem[], nextUpItem: JellyfinBaseItem | null): string {
+    const nextUpSeasonId = nextUpItem?.SeasonId || nextUpItem?.ParentId || "";
+    if (nextUpSeasonId && seasons.some(season => season.Id === nextUpSeasonId)) {
+        return nextUpSeasonId;
+    }
+    return seasons.find(season => (season.IndexNumber || 0) > 0)?.Id || seasons[0]?.Id || "";
+}
+
+function getSeriesEpisodeLoadState(view: SeriesViewData): "ready" | "loading" {
+    return !view.selectedSeasonId || view.episodesBySeason.has(view.selectedSeasonId) ? "ready" : "loading";
+}
+
+function renderSeriesView(
+    view: SeriesViewData,
+    loadState: "ready" | "loading" | "error",
+    scrollTop: number
+): void {
+    renderSeriesDetails(
+        view.details,
+        view.seasons,
+        view.selectedSeasonId,
+        view.episodesBySeason.get(view.selectedSeasonId) || [],
+        view.nextUpItem,
+        loadState
+    );
+    requestAnimationFrame(() => window.scrollTo(0, scrollTop));
+}
+
+function renderSeriesSeason(
+    view: SeriesViewData,
+    loadState: "ready" | "loading" | "error",
+    scrollTop: number
+): void {
+    const updated = renderSeriesEpisodes(
+        view.seasons,
+        view.selectedSeasonId,
+        view.episodesBySeason.get(view.selectedSeasonId) || [],
+        loadState
+    );
+    if (!updated) {
+        renderSeriesView(view, loadState, scrollTop);
+        return;
+    }
+    requestAnimationFrame(() => window.scrollTo(0, scrollTop));
 }
 
 export async function reloadItems(breadcrumb: {
@@ -316,23 +440,10 @@ export async function reloadItems(breadcrumb: {
     });
 }
 
-export async function reloadSeasons(breadcrumb: { id: string; name: string }): Promise<void> {
-    await fetchAndRenderSeasons({
+export async function reloadSeriesDetails(breadcrumb: { id: string; name: string }): Promise<void> {
+    await fetchAndRenderSeriesDetails({
         seriesId: breadcrumb.id,
         seriesName: breadcrumb.name,
-        addBreadcrumb: false
-    });
-}
-
-export async function reloadEpisodes(breadcrumb: {
-    id: string;
-    name: string;
-    seriesId: string;
-}): Promise<void> {
-    await fetchAndRenderEpisodes({
-        seriesId: breadcrumb.seriesId,
-        seasonId: breadcrumb.id,
-        seasonName: breadcrumb.name,
         addBreadcrumb: false
     });
 }
@@ -342,7 +453,8 @@ export async function loadHome(forceReload: boolean = false): Promise<void> {
     state.breadcrumb = [];
     state.currentLibrary = null;
     state.currentSeries = null;
-    state.currentSeason = null;
+    currentSeriesView = null;
+    seriesSeasonRequestId += 1;
     state.lastAction = () => loadHome(true);
     updateTitle("Home");
     const cacheKey = getSessionCacheKey();
@@ -392,6 +504,10 @@ function getSessionCacheKey(): string {
 
 function getLibraryCacheKey(libraryId: string, collectionType: string): string {
     return `${getSessionCacheKey()}\u0000${collectionType}\u0000${libraryId}`;
+}
+
+function getSeriesDetailsCacheKey(seriesId: string): string {
+    return `${getSessionCacheKey()}\u0000series\u0000${seriesId}`;
 }
 
 async function loadHomeItems(limit: number = 5): Promise<JellyfinBaseItem[]> {
@@ -502,21 +618,40 @@ export async function loadItems(
     });
 }
 
-export async function loadSeasons(seriesId: string, seriesName: string): Promise<void> {
-    await fetchAndRenderSeasons({
+export async function loadSeriesDetails(seriesId: string, seriesName: string): Promise<void> {
+    await fetchAndRenderSeriesDetails({
         seriesId,
         seriesName,
         addBreadcrumb: true
     });
 }
 
-export async function loadEpisodes(seriesId: string, seasonId: string, seasonName: string): Promise<void> {
-    await fetchAndRenderEpisodes({
-        seriesId,
-        seasonId,
-        seasonName,
-        addBreadcrumb: true
+export async function loadMovie(movieId: string, movieName: string): Promise<void> {
+    await fetchAndRenderMovieDetails({ movieId, movieName, addBreadcrumb: true });
+}
+
+export async function reloadMovie(breadcrumb: { id: string; name: string }): Promise<void> {
+    await fetchAndRenderMovieDetails({
+        movieId: breadcrumb.id,
+        movieName: breadcrumb.name,
+        addBreadcrumb: false
     });
+}
+
+export async function selectSeriesSeason(seasonId: string): Promise<void> {
+    const view = currentSeriesView;
+    if (!view || !view.seasons.some(season => season.Id === seasonId)) {
+        return;
+    }
+    await loadSeriesSeason(view, seasonId, window.scrollY, false);
+}
+
+export async function retrySelectedSeriesSeason(): Promise<void> {
+    const view = currentSeriesView;
+    if (!view?.selectedSeasonId) {
+        return;
+    }
+    await loadSeriesSeason(view, view.selectedSeasonId, window.scrollY, true);
 }
 
 export async function performSearch(query: string): Promise<void> {

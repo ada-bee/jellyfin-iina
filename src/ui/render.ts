@@ -3,7 +3,7 @@ import type { JellyfinBaseItem } from "../shared/jellyfin";
 import { TICKS_PER_MINUTE } from "./constants";
 import { ui } from "./dom";
 import { state, type SearchFilter } from "./state";
-import { formatEpisodeNumber, formatPaddedEpisodeNumber, formatRuntime } from "./utils";
+import { formatPaddedEpisodeNumber, formatRuntime } from "./utils";
 
 export interface ListCardOptions {
     showSeriesName?: boolean;
@@ -17,6 +17,8 @@ export interface ListCardOptions {
     libraryPoster?: boolean;
     usePosterImage?: boolean;
     hideRuntime?: boolean;
+    directPlay?: boolean;
+    episodeRow?: boolean;
 }
 
 type HomeSectionId = "continue-watching" | "new" | "movies" | "series";
@@ -26,12 +28,15 @@ export interface CardContext {
     name: string;
     type: string;
     resume: number;
+    directPlay: boolean;
     context: {
         seriesId: string;
         seasonId: string;
         episodeIndex: number | null;
     };
 }
+
+export type EpisodeLoadState = "ready" | "loading" | "error";
 
 let cachedSearchResults: JellyfinBaseItem[] = [];
 let homeRailResizeHandlerInstalled = false;
@@ -161,6 +166,7 @@ export function renderHomeSections(
             items: continueWatchingItems,
             options: {
                 homeThumbnail: true,
+                directPlay: true,
                 showSeriesName: true,
                 showEpisodeNumber: true,
                 hideRuntime: true,
@@ -173,6 +179,7 @@ export function renderHomeSections(
             items: newestEpisodes,
             options: {
                 homeThumbnail: true,
+                directPlay: true,
                 showSeriesName: true,
                 showEpisodeNumber: true,
                 hideRuntime: true,
@@ -311,29 +318,49 @@ function updateHomeRailShadow(row: HTMLElement): void {
     }
 }
 
-export function renderSeriesOverview(nextUpItem: JellyfinBaseItem | null, seasons: JellyfinBaseItem[]): void {
-    const fragment = document.createDocumentFragment();
+export function renderMovieDetails(item: JellyfinBaseItem): void {
+    const details = buildMediaDetails(item, getMediaDetailMetadata(item), item);
+    details.classList.add("movie-details");
+    replaceContent(details);
+}
 
-    if (nextUpItem) {
-        const section = buildContentSection("Up Next");
-        section.appendChild(buildMediaList([nextUpItem], {
-            showSeriesName: false,
-            showEpisodeNumber: true,
-            ...getNextUpImageOptions()
-        }));
-        fragment.appendChild(section);
+export function renderSeriesDetails(
+    item: JellyfinBaseItem,
+    seasons: JellyfinBaseItem[],
+    selectedSeasonId: string,
+    episodes: JellyfinBaseItem[],
+    nextUpItem: JellyfinBaseItem | null,
+    episodeLoadState: EpisodeLoadState
+): void {
+    const nextUpLabel = nextUpItem ? getSeriesPlayLabel(nextUpItem) : "";
+    const details = buildMediaDetails(
+        item,
+        getMediaDetailMetadata(item, seasons.length),
+        nextUpItem,
+        nextUpLabel
+    );
+    details.classList.add("series-details");
+    details.appendChild(buildSeriesEpisodesSection(seasons, selectedSeasonId, episodes, episodeLoadState));
+    replaceContent(details);
+}
+
+export function renderSeriesEpisodes(
+    seasons: JellyfinBaseItem[],
+    selectedSeasonId: string,
+    episodes: JellyfinBaseItem[],
+    episodeLoadState: EpisodeLoadState
+): boolean {
+    const currentSection = ui.content.querySelector<HTMLElement>(".series-episodes");
+    if (!currentSection) {
+        return false;
     }
-
-    if (seasons.length > 0) {
-        const section = buildContentSection("Seasons");
-        const list = document.createElement("div");
-        list.className = "season-list";
-        seasons.forEach(season => list.appendChild(buildSeasonCardElement(season)));
-        section.appendChild(list);
-        fragment.appendChild(section);
-    }
-
-    replaceContent(fragment);
+    currentSection.replaceWith(buildSeriesEpisodesSection(
+        seasons,
+        selectedSeasonId,
+        episodes,
+        episodeLoadState
+    ));
+    return true;
 }
 
 export function renderSearchResults(items: JellyfinBaseItem[]): void {
@@ -367,6 +394,7 @@ export function getCardContext(card: HTMLElement | null): CardContext | null {
         name: card.dataset.name || "",
         type: card.dataset.type || "",
         resume,
+        directPlay: card.dataset.directPlay === "true",
         context: {
             seriesId: card.dataset.seriesId || "",
             seasonId: card.dataset.seasonId || "",
@@ -382,7 +410,10 @@ export function handleContentError(event: Event): void {
     if (!imageElement || imageElement.tagName !== "IMG") {
         return;
     }
-    if (imageElement.classList.contains("season-thumb") || imageElement.classList.contains("list-thumb")) {
+    if (
+        imageElement.classList.contains("list-thumb") ||
+        imageElement.classList.contains("media-detail-image")
+    ) {
         handleImageFallback(imageElement);
     }
 }
@@ -406,15 +437,6 @@ function renderFilteredSearchResults(): void {
     replaceContent(list);
 }
 
-function buildContentSection(titleText: string): HTMLElement {
-    const section = document.createElement("section");
-    section.className = "content-section";
-    const title = document.createElement("h3");
-    title.textContent = titleText;
-    section.appendChild(title);
-    return section;
-}
-
 function buildMediaList(items: JellyfinBaseItem[], options: ListCardOptions): HTMLElement {
     const list = document.createElement("div");
     list.className = "media-list";
@@ -422,34 +444,193 @@ function buildMediaList(items: JellyfinBaseItem[], options: ListCardOptions): HT
     return list;
 }
 
-function buildSeasonCardElement(season: JellyfinBaseItem): HTMLElement {
-    const seasonName = String(season.Name || "Season");
-    const seriesId = state.currentSeries?.id || "";
+function buildMediaDetails(
+    item: JellyfinBaseItem,
+    metadataText: string,
+    playbackItem: JellyfinBaseItem | null,
+    playbackLabel: string = ""
+): HTMLElement {
+    const details = document.createElement("article");
+    details.className = "media-details";
+    details.appendChild(buildMediaDetailArtwork(item, playbackItem, playbackLabel));
+    details.appendChild(buildMediaDetailInfo(item, metadataText));
+    return details;
+}
 
-    const card = document.createElement("div");
-    card.className = "season-card list-card";
-    applyCardContext(card, season, seasonName, seriesId, season.Id || "");
-    card.setAttribute("aria-label", seasonName);
+function buildMediaDetailInfo(item: JellyfinBaseItem, metadataText: string): HTMLElement {
+    const info = document.createElement("div");
+    info.className = "media-detail-info";
+    const title = document.createElement("h1");
+    title.textContent = String(item.Name || "Untitled");
+    info.appendChild(title);
 
-    const artwork = document.createElement("div");
-    artwork.className = "season-artwork";
+    if (metadataText) {
+        const metadata = document.createElement("p");
+        metadata.className = "media-detail-meta";
+        metadata.textContent = metadataText;
+        info.appendChild(metadata);
+    }
+
+    if (item.Type === "Movie" && item.UserData?.Played) {
+        info.appendChild(buildMediaDetailWatchedState());
+    }
+    appendMediaDetailCopy(info, item);
+    return info;
+}
+
+function appendMediaDetailCopy(container: HTMLElement, item: JellyfinBaseItem): void {
+    const tagline = item.Taglines?.find(value => Boolean(value?.trim()))?.trim();
+    if (tagline) {
+        const taglineElement = document.createElement("p");
+        taglineElement.className = "media-detail-tagline";
+        taglineElement.textContent = tagline;
+        container.appendChild(taglineElement);
+    }
+    if (item.Overview) {
+        const overview = document.createElement("p");
+        overview.className = "media-detail-overview";
+        overview.textContent = item.Overview;
+        container.appendChild(overview);
+    }
+}
+
+function buildMediaDetailArtwork(
+    item: JellyfinBaseItem,
+    playbackItem: JellyfinBaseItem | null,
+    playbackLabel: string
+): HTMLElement {
+    const artwork = playbackItem
+        ? document.createElement("button")
+        : document.createElement("div");
+    artwork.className = "media-detail-artwork";
+    if (artwork instanceof HTMLButtonElement && playbackItem) {
+        artwork.type = "button";
+        applyDetailPlaybackContext(artwork, playbackItem);
+        const action = playbackItem.UserData?.PlaybackPositionTicks && !playbackItem.UserData.Played
+            ? "Resume"
+            : "Play";
+        const label = playbackLabel
+            ? `${playbackLabel}, ${String(item.Name || "series")}`
+            : `${action} ${String(item.Name || "movie")}`;
+        artwork.setAttribute("aria-label", label);
+        artwork.title = label;
+    }
 
     const image = document.createElement("img");
-    image.className = "season-thumb";
-    image.src = getImageUrl(season.Id || "", "Primary", 680);
-    image.dataset.fallback = getImageUrl(seriesId, "Backdrop", 680);
-    image.dataset.itemId = season.Id || "";
-    image.dataset.type = "Season";
+    image.className = "media-detail-image";
+    image.src = getImageUrl(item.Id || "", "Thumb", 1000);
+    image.dataset.fallback = getImageUrl(item.Id || "", "Backdrop", 1000);
+    image.dataset.itemId = item.Id || "";
+    image.dataset.type = item.Type || "";
     image.alt = "";
-    image.loading = "lazy";
     artwork.appendChild(image);
 
-    const title = document.createElement("div");
-    title.className = "season-title";
-    title.textContent = seasonName;
-    artwork.appendChild(title);
-    card.appendChild(artwork);
-    return card;
+    const progress = playbackItem ? buildThumbProgressElement(playbackItem) : null;
+    if (progress) {
+        artwork.appendChild(progress);
+    }
+    if (playbackItem?.UserData?.Played) {
+        artwork.appendChild(buildWatchedIndicator());
+    }
+    return artwork;
+}
+
+function buildMediaDetailWatchedState(): HTMLElement {
+    const watched = document.createElement("div");
+    watched.className = "media-detail-watched";
+    watched.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="m3 7.2 2.5 2.5L11.2 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Watched</span>';
+    return watched;
+}
+
+function applyDetailPlaybackContext(element: HTMLElement, item: JellyfinBaseItem): void {
+    const resumeTicks = item.UserData?.Played ? 0 : item.UserData?.PlaybackPositionTicks || 0;
+    element.dataset.detailPlay = "";
+    element.dataset.id = item.Id || "";
+    element.dataset.name = String(item.Name || "Untitled");
+    element.dataset.resume = String(resumeTicks);
+    element.dataset.seriesId = item.SeriesId || "";
+    element.dataset.seasonId = item.SeasonId || item.ParentId || "";
+    element.dataset.episodeIndex = item.IndexNumber === undefined || item.IndexNumber === null
+        ? ""
+        : String(item.IndexNumber);
+    element.setAttribute("data-clickable", "");
+}
+
+function buildSeriesEpisodesSection(
+    seasons: JellyfinBaseItem[],
+    selectedSeasonId: string,
+    episodes: JellyfinBaseItem[],
+    loadState: EpisodeLoadState
+): HTMLElement {
+    const section = document.createElement("section");
+    section.className = "series-episodes";
+
+    if (seasons.length > 0) {
+        const controls = document.createElement("div");
+        controls.className = "series-episodes-controls";
+        const selector = document.createElement("div");
+        selector.className = "season-selector";
+        const select = document.createElement("select");
+        select.dataset.seasonSelect = "";
+        select.setAttribute("aria-label", "Season");
+        seasons.forEach(season => {
+            const option = document.createElement("option");
+            option.value = season.Id || "";
+            option.textContent = String(season.Name || "Season");
+            option.selected = option.value === selectedSeasonId;
+            select.appendChild(option);
+        });
+        selector.appendChild(select);
+        controls.appendChild(selector);
+        section.appendChild(controls);
+    }
+
+    if (loadState === "loading") {
+        const status = document.createElement("div");
+        status.className = "series-episode-status";
+        status.setAttribute("role", "status");
+        status.setAttribute("aria-label", "Loading episodes");
+        status.appendChild(buildLibraryLoadingSpinner());
+        section.appendChild(status);
+        return section;
+    }
+    if (loadState === "error") {
+        const status = document.createElement("div");
+        status.className = "series-episode-status series-episode-status--error";
+        const message = document.createElement("p");
+        message.textContent = "Couldn’t load episodes.";
+        const retry = document.createElement("button");
+        retry.className = "btn-secondary";
+        retry.type = "button";
+        retry.dataset.seasonRetry = "";
+        retry.textContent = "Try Again";
+        status.append(message, retry);
+        section.appendChild(status);
+        return section;
+    }
+    if (episodes.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "series-episode-empty";
+        empty.textContent = "No episodes in this season.";
+        section.appendChild(empty);
+        return section;
+    }
+
+    const list = buildMediaList(episodes, {
+        showSeriesName: false,
+        showEpisodeNumber: true,
+        useEpisodeThumbnail: true,
+        episodeRow: true
+    });
+    list.classList.add("series-episode-list");
+    section.appendChild(list);
+    return section;
+}
+
+function getSeriesPlayLabel(item: JellyfinBaseItem): string {
+    const episodeNumber = formatPaddedEpisodeNumber(item.ParentIndexNumber, item.IndexNumber);
+    const action = item.UserData?.PlaybackPositionTicks ? "Resume" : "Play";
+    return `${action} ${episodeNumber}`;
 }
 
 function buildListCardElement(item: JellyfinBaseItem, options: ListCardOptions): HTMLElement {
@@ -462,7 +643,8 @@ function buildListCardElement(item: JellyfinBaseItem, options: ListCardOptions):
     card.classList.toggle("home-poster-card", Boolean(options.homePoster));
     card.classList.toggle("home-thumbnail-card", Boolean(options.homeThumbnail));
     card.classList.toggle("library-poster-card", Boolean(options.libraryPoster));
-    applyCardContext(card, item, displayName, seriesId, seasonId);
+    card.classList.toggle("series-episode-card", Boolean(options.episodeRow));
+    applyCardContext(card, item, displayName, seriesId, seasonId, Boolean(options.directPlay));
 
     const thumbWrapper = document.createElement("div");
     thumbWrapper.className = "thumb-wrapper";
@@ -477,7 +659,8 @@ function buildListCardElement(item: JellyfinBaseItem, options: ListCardOptions):
     image.loading = "lazy";
     thumbWrapper.appendChild(image);
     const artworkOnly = options.homePoster || options.libraryPoster;
-    if (!artworkOnly) {
+    const opensDetails = !options.directPlay && (item.Type === "Movie" || item.Type === "Series");
+    if (!artworkOnly && !opensDetails) {
         thumbWrapper.appendChild(buildPlayOverlay());
     }
 
@@ -498,8 +681,12 @@ function buildListCardElement(item: JellyfinBaseItem, options: ListCardOptions):
     }
 
     const copy = getCardCopy(item, options);
+    const episodeRowNumber = options.episodeRow ? getEpisodeRowNumber(item) : "";
+    const episodeRowRuntime = options.episodeRow ? formatRuntime(item.RunTimeTicks) : "";
     const remainingText = remainingLabel ? `, ${remainingLabel}` : "";
-    const accessibleName = `${copy.title}${copy.metadata ? `, ${copy.metadata}` : ""}${remainingText}`;
+    const accessibleTitle = episodeRowNumber ? `${episodeRowNumber} ${copy.title}` : copy.title;
+    const accessibleMetadata = options.episodeRow ? episodeRowRuntime : copy.metadata;
+    const accessibleName = `${accessibleTitle}${accessibleMetadata ? `, ${accessibleMetadata}` : ""}${remainingText}`;
     card.setAttribute("aria-label", accessibleName);
     card.title = accessibleName;
     const body = document.createElement("div");
@@ -508,13 +695,39 @@ function buildListCardElement(item: JellyfinBaseItem, options: ListCardOptions):
     const title = document.createElement("div");
     title.className = "list-title";
     title.textContent = copy.title;
-    body.appendChild(title);
+    if (options.episodeRow) {
+        const heading = document.createElement("div");
+        heading.className = "series-episode-heading";
+        if (episodeRowNumber) {
+            const number = document.createElement("span");
+            number.className = "series-episode-number";
+            number.textContent = episodeRowNumber;
+            heading.appendChild(number);
+        }
+        heading.appendChild(title);
+        if (episodeRowRuntime) {
+            const duration = document.createElement("span");
+            duration.className = "series-episode-duration";
+            duration.textContent = episodeRowRuntime;
+            heading.appendChild(duration);
+        }
+        body.appendChild(heading);
+    } else {
+        body.appendChild(title);
+    }
 
-    if (copy.metadata) {
+    if (copy.metadata && !options.episodeRow) {
         const metadata = document.createElement("div");
         metadata.className = "list-meta";
         metadata.textContent = copy.metadata;
         body.appendChild(metadata);
+    }
+
+    if (options.episodeRow && item.Overview) {
+        const overview = document.createElement("div");
+        overview.className = "list-overview";
+        overview.textContent = item.Overview;
+        body.appendChild(overview);
     }
 
     card.appendChild(thumbWrapper);
@@ -524,12 +737,20 @@ function buildListCardElement(item: JellyfinBaseItem, options: ListCardOptions):
     return card;
 }
 
+function getEpisodeRowNumber(item: JellyfinBaseItem): string {
+    if (item.IndexNumber === undefined || item.IndexNumber === null) {
+        return "";
+    }
+    return `E${String(item.IndexNumber).padStart(2, "0")}`;
+}
+
 function applyCardContext(
     card: HTMLElement,
     item: JellyfinBaseItem,
     name: string,
     seriesId: string,
-    seasonId: string
+    seasonId: string,
+    directPlay: boolean = false
 ): void {
     card.dataset.id = item.Id || "";
     card.dataset.name = name;
@@ -540,9 +761,42 @@ function applyCardContext(
     card.dataset.episodeIndex = item.IndexNumber === undefined || item.IndexNumber === null
         ? ""
         : String(item.IndexNumber);
+    card.dataset.directPlay = String(directPlay);
     card.setAttribute("data-clickable", "");
     card.tabIndex = 0;
     card.setAttribute("role", "button");
+}
+
+function getMediaDetailMetadata(item: JellyfinBaseItem, seasonCount: number = 0): string {
+    const metadata: string[] = [];
+    if (item.ProductionYear) {
+        metadata.push(getYearLabel(item));
+    }
+    if (item.Type === "Movie") {
+        const runtime = formatRuntime(item.RunTimeTicks);
+        if (runtime) {
+            metadata.push(runtime);
+        }
+    }
+    if (seasonCount > 0) {
+        metadata.push(`${seasonCount} ${seasonCount === 1 ? "season" : "seasons"}`);
+    }
+    if (item.OfficialRating) {
+        metadata.push(item.OfficialRating);
+    }
+    return metadata.join(" · ");
+}
+
+function getYearLabel(item: JellyfinBaseItem): string {
+    const startYear = item.ProductionYear;
+    if (!startYear || item.Type !== "Series") {
+        return String(startYear || "");
+    }
+    const endYear = item.EndDate ? new Date(item.EndDate).getFullYear() : 0;
+    if (endYear && endYear !== startYear) {
+        return `${startYear}–${endYear}`;
+    }
+    return item.Status === "Continuing" ? `${startYear}–` : String(startYear);
 }
 
 function getCardCopy(item: JellyfinBaseItem, options: ListCardOptions): { title: string; metadata: string } {
@@ -563,17 +817,14 @@ function getCardCopy(item: JellyfinBaseItem, options: ListCardOptions): { title:
 
         const seriesIsTitle = options.showSeriesName !== false && Boolean(item.SeriesName);
         if (options.showEpisodeNumber) {
-            const episodeNumber = formatEpisodeNumber(item.ParentIndexNumber, item.IndexNumber);
-            if (episodeNumber) {
-                metadata.push(episodeNumber.replace("E", ", E"));
-            }
+            metadata.push(formatPaddedEpisodeNumber(item.ParentIndexNumber, item.IndexNumber));
         }
         if (seriesIsTitle) {
             metadata.push(itemName);
         } else if (options.showSeriesName !== false && item.SeriesName) {
             metadata.push(String(item.SeriesName));
         }
-        if (!options.hideRuntime && !hasProgress(item) && runtime) {
+        if (!options.hideRuntime && (!hasProgress(item) || options.episodeRow) && runtime) {
             metadata.push(runtime);
         }
         return {

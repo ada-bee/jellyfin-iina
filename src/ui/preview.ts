@@ -1,7 +1,7 @@
 import type { JellyfinBaseItem } from "../shared/jellyfin";
 
 import { ui } from "./dom";
-import { setupEventListeners } from "./controller/events";
+import { setupEventListeners, setupNavigationScrollState } from "./controller/events";
 import { loadHome } from "./controller/loaders";
 import {
     findListCard,
@@ -10,9 +10,10 @@ import {
     renderEmptyState,
     renderHomeSections,
     renderLibraryGrid,
-    renderListCards,
+    renderMovieDetails,
     renderSearchResults,
-    renderSeriesOverview,
+    renderSeriesDetails,
+    renderSeriesEpisodes,
     setSearchFilter,
     showBrowseView,
     showError,
@@ -23,7 +24,7 @@ import {
 import { state, type SearchFilter } from "./state";
 import { getDeviceId } from "./storage";
 
-type PreviewName = "home" | "search" | "series" | "episodes" | "login" | "loading" | "empty" | "error";
+type PreviewName = "home" | "search" | "movie" | "series" | "login" | "loading" | "empty" | "error";
 
 const TICKS_PER_MINUTE = 600_000_000;
 
@@ -86,11 +87,12 @@ function series(id: string, name: string, year: number, watched: number, total: 
     };
 }
 
-function season(id: string, name: string): JellyfinBaseItem {
+function season(id: string, name: string, indexNumber: number): JellyfinBaseItem {
     return {
         Id: id,
         Name: name,
-        Type: "Season"
+        Type: "Season",
+        IndexNumber: indexNumber
     };
 }
 
@@ -105,6 +107,13 @@ const recentMovies = [
     movie("quiet-city", "The Quiet City", 2024, 98, 24),
     movie("night-train", "Night Train to Brno", 2026, 126)
 ];
+
+const previewMovie: JellyfinBaseItem = {
+    ...recentMovies[0],
+    Overview: "After a mysterious transmission reaches an isolated mountain town, a radio astronomer must decide whether its warning is meant for Earth—or came from it.",
+    Taglines: ["Some signals are better left unanswered."],
+    OfficialRating: "PG-13"
+};
 
 const recentEpisodes = [
     episode("open-water", "Open Water", "Still Water", 2, 2, 51),
@@ -130,25 +139,47 @@ const searchResults = [
 ];
 
 const seasons = [
-    season("season-1", "Season 1"),
-    season("season-2", "Season 2"),
-    season("season-3", "Season 3"),
-    season("season-specials", "Specials")
+    season("season-1", "Season 1", 1),
+    season("season-2", "Season 2", 2),
+    season("season-3", "Season 3", 3),
+    season("season-specials", "Specials", 0)
 ];
 
+const previewSeries: JellyfinBaseItem = {
+    ...recentSeries[1],
+    Overview: "A night-shift dispatcher discovers that every train passing through North Station is carrying someone who should not exist.",
+    Taglines: ["Every arrival changes the timetable."],
+    OfficialRating: "TV-14",
+    Status: "Continuing"
+};
+
 const seasonEpisodes = [
-    episode("first-light", "First Light", "North Station", 1, 1, 47, 100),
-    episode("interchange", "Interchange", "North Station", 1, 2, 45, 100),
-    episode("dead-line", "Dead Line", "North Station", 1, 3, 52, 81),
-    episode("arrival", "Arrival", "North Station", 1, 4, 46),
-    episode("the-plan", "The Plan", "North Station", 1, 5, 48)
+    {
+        ...episode("first-light", "First Light", "North Station", 1, 1, 47, 100),
+        Overview: "Mara follows an impossible signal into the station's sealed lower platforms."
+    },
+    {
+        ...episode("interchange", "Interchange", "North Station", 1, 2, 45, 100),
+        Overview: "A missed connection brings a stranger with a warning from another timetable."
+    },
+    {
+        ...episode("dead-line", "Dead Line", "North Station", 1, 3, 52, 81),
+        Overview: "The night crew races to stop a train that no longer appears on their maps."
+    },
+    {
+        ...episode("arrival", "Arrival", "North Station", 1, 4, 46),
+        Overview: "An unexpected passenger forces Mara to question what she knows about the station."
+    },
+    {
+        ...episode("the-plan", "The Plan", "North Station", 1, 5, 48),
+        Overview: "With time running short, the crew prepares one last attempt to close the line."
+    }
 ];
 
 function resetPreviewUi(): void {
     state.breadcrumb = [];
     state.currentLibrary = null;
     state.currentSeries = null;
-    state.currentSeason = null;
     state.searchQuery = "";
     state.searchFilter = "all";
     state.searchOrigin = null;
@@ -177,27 +208,18 @@ const previewRenderers: Record<PreviewName, () => void> = {
         updateTitle("Search Results");
         renderSearchResults(searchResults);
     },
+    movie() {
+        prepareBrowseView();
+        state.breadcrumb = [{ type: "movie", id: previewMovie.Id || "signal-fire", name: String(previewMovie.Name) }];
+        updateTitle(String(previewMovie.Name));
+        renderMovieDetails(previewMovie);
+    },
     series() {
         prepareBrowseView();
-        state.currentSeries = { id: "series-north-station", name: "North Station" };
+        state.currentSeries = { id: "series-north-station", name: "North Station", selectedSeasonId: "season-1" };
         state.breadcrumb = [{ type: "series", id: "series-north-station", name: "North Station" }];
         updateTitle("North Station");
-        renderSeriesOverview(upNextItems[0], seasons);
-    },
-    episodes() {
-        prepareBrowseView();
-        state.currentSeries = { id: "series-north-station", name: "North Station" };
-        state.currentSeason = { id: "season-1", name: "Season 1" };
-        state.breadcrumb = [
-            { type: "series", id: "series-north-station", name: "North Station" },
-            { type: "season", id: "season-1", seriesId: "series-north-station", name: "Season 1" }
-        ];
-        updateTitle("Season 1");
-        renderListCards(seasonEpisodes, {
-            showSeriesName: false,
-            showEpisodeNumber: true,
-            useEpisodeThumbnail: true
-        });
+        renderSeriesDetails(previewSeries, seasons, "season-1", seasonEpisodes, upNextItems[0], "ready");
     },
     login() {
         showLoginView();
@@ -254,6 +276,7 @@ interface LivePreviewSession {
 }
 
 function setupFixturePreview(): void {
+    setupNavigationScrollState();
     ui.backBtn.addEventListener("click", () => navigateToPreview("home"));
     ui.sectionTitle.addEventListener("click", () => navigateToPreview("home"));
     ui.retryBtn.addEventListener("click", () => navigateToPreview("home"));
@@ -273,6 +296,16 @@ function setupFixturePreview(): void {
         if (isSearchFilter(filter)) {
             setSearchFilter(filter);
         }
+    });
+    ui.content.addEventListener("change", event => {
+        const select = (event.target as HTMLElement | null)?.closest<HTMLSelectElement>("[data-season-select]");
+        if (!select?.value) {
+            return;
+        }
+        const seasonNumber = seasons.find(item => item.Id === select.value)?.IndexNumber || 1;
+        const episodes = seasonEpisodes.map(item => ({ ...item, ParentIndexNumber: seasonNumber }));
+        state.currentSeries = { id: "series-north-station", name: "North Station", selectedSeasonId: select.value };
+        renderSeriesEpisodes(seasons, select.value, episodes, "ready");
     });
     ui.content.addEventListener("click", event => {
         const libraryLink = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>("[data-home-library]");
@@ -299,8 +332,8 @@ function setupFixturePreview(): void {
         const context = getCardContext(card);
         if (context?.type === "Series") {
             navigateToPreview("series");
-        } else if (context?.type === "Season") {
-            navigateToPreview("episodes");
+        } else if (context?.type === "Movie" && !context.directPlay) {
+            navigateToPreview("movie");
         }
     });
     window.addEventListener("popstate", () => renderPreview(getRequestedPreview()));

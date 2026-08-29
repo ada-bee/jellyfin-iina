@@ -5,9 +5,9 @@ import {
     cancelPendingViewRequest,
     loadHome,
     performSearch,
-    reloadEpisodes,
     reloadItems,
-    reloadSeasons,
+    reloadMovie,
+    reloadSeriesDetails,
     saveCurrentLibraryScrollPosition
 } from "./loaders";
 
@@ -39,7 +39,6 @@ export function resetSearchState(shouldReload: boolean = true): void {
         state.breadcrumb = [];
         state.currentLibrary = null;
         state.currentSeries = null;
-        state.currentSeason = null;
         void loadHome();
     }
 }
@@ -57,7 +56,6 @@ export function handleBack(): void {
     if (state.breadcrumb.length === 0) {
         state.currentLibrary = null;
         state.currentSeries = null;
-        state.currentSeason = null;
         resetSearchState(false);
         void loadHome();
         return;
@@ -67,15 +65,13 @@ export function handleBack(): void {
     switch (prev.type) {
         case "library":
             state.currentSeries = null;
-            state.currentSeason = null;
             void reloadItems(prev);
             break;
-        case "series":
-            state.currentSeason = null;
-            void reloadSeasons(prev);
+        case "movie":
+            void reloadMovie(prev);
             break;
-        case "season":
-            void reloadEpisodes(prev);
+        case "series":
+            void reloadSeriesDetails(prev);
             break;
     }
 }
@@ -91,7 +87,6 @@ export function goHomeFresh(reason: string = ""): void {
     state.breadcrumb = [];
     state.currentLibrary = null;
     state.currentSeries = null;
-    state.currentSeason = null;
     state.lastAction = null;
     resetSearchState(false);
     if (reason) {
@@ -155,7 +150,6 @@ function prepareBrowseContextForSearch(): void {
     state.breadcrumb = [];
     state.currentLibrary = null;
     state.currentSeries = null;
-    state.currentSeason = null;
 }
 
 function setSearchFilterSelection(filter: "all" | "movie" | "series"): void {

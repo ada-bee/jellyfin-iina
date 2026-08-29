@@ -11,9 +11,17 @@ import {
     resetSearchState
 } from "./navigation";
 import { handleLogin } from "./session";
-import { loadEpisodes, loadItems, loadSeasons, saveCurrentLibraryScrollPosition } from "./loaders";
+import {
+    loadItems,
+    loadMovie,
+    loadSeriesDetails,
+    retrySelectedSeriesSeason,
+    saveCurrentLibraryScrollPosition,
+    selectSeriesSeason
+} from "./loaders";
 
 export function setupEventListeners(): void {
+    setupNavigationScrollState();
     ui.loginForm.addEventListener("submit", handleLogin);
     ui.backBtn.addEventListener("click", handleBack);
     ui.sectionTitle.addEventListener("click", handleBack);
@@ -30,11 +38,45 @@ export function setupEventListeners(): void {
     });
     ui.clearSearchButton.addEventListener("click", handleClearSearch);
     ui.content.addEventListener("click", handleContentClick);
+    ui.content.addEventListener("change", handleContentChange);
     ui.content.addEventListener("keydown", handleContentKeydown);
     ui.content.addEventListener("error", handleContentError, true);
 }
 
+export function setupNavigationScrollState(): void {
+    const updateScrollState = () => {
+        ui.navigationLayer.classList.toggle("navigation-layer--scrolled", window.scrollY > 0);
+    };
+    window.addEventListener("scroll", updateScrollState, { passive: true });
+    updateScrollState();
+}
+
 function handleContentClick(event: MouseEvent): void {
+    const detailPlayButton = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>("[data-detail-play]");
+    if (detailPlayButton) {
+        const id = detailPlayButton.dataset.id || "";
+        if (id) {
+            void playItem(
+                id,
+                detailPlayButton.dataset.name || "Video",
+                Number.parseInt(detailPlayButton.dataset.resume || "0", 10) || 0,
+                {
+                    seriesId: detailPlayButton.dataset.seriesId || "",
+                    seasonId: detailPlayButton.dataset.seasonId || "",
+                    episodeIndex: detailPlayButton.dataset.episodeIndex
+                        ? Number.parseInt(detailPlayButton.dataset.episodeIndex, 10)
+                        : null
+                }
+            );
+        }
+        return;
+    }
+
+    if ((event.target as HTMLElement | null)?.closest("[data-season-retry]")) {
+        void retrySelectedSeriesSeason();
+        return;
+    }
+
     const libraryLink = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>("[data-home-library]");
     if (libraryLink) {
         const collectionType = libraryLink.dataset.homeLibrary || "";
@@ -49,6 +91,13 @@ function handleContentClick(event: MouseEvent): void {
     }
 
     handleListCardSelection(card);
+}
+
+function handleContentChange(event: Event): void {
+    const select = (event.target as HTMLElement | null)?.closest<HTMLSelectElement>("[data-season-select]");
+    if (select?.value) {
+        void selectSeriesSeason(select.value);
+    }
 }
 
 function handleSearchFilterClick(event: MouseEvent): void {
@@ -83,7 +132,7 @@ function handleListCardSelection(card: HTMLElement): void {
         return;
     }
 
-    const { id, name, type, resume, context } = details;
+    const { id, name, type, resume, directPlay, context } = details;
 
     if (type === "Series") {
         if (state.searchQuery) {
@@ -91,12 +140,17 @@ function handleListCardSelection(card: HTMLElement): void {
         } else {
             saveCurrentLibraryScrollPosition();
         }
-        void loadSeasons(id, name);
+        void loadSeriesDetails(id, name);
         return;
     }
 
-    if (type === "Season") {
-        void loadEpisodes(state.currentSeries?.id || "", id, name);
+    if (type === "Movie" && !directPlay) {
+        if (state.searchQuery) {
+            resetSearchState(false);
+        } else {
+            saveCurrentLibraryScrollPosition();
+        }
+        void loadMovie(id, name);
         return;
     }
 
