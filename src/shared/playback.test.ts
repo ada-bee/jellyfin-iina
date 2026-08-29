@@ -213,6 +213,17 @@ describe("Jellyfin stream URLs", () => {
         expect(url).toStartWith("https://media.example.test/jellyfin/Videos/item-id/stream?");
     });
 
+    test("encodes the item id as one route segment", () => {
+        const url = buildJellyfinStreamUrl({
+            ...baseOptions,
+            itemId: "item/id",
+            mediaSourceId: "source-id",
+            playSessionId: "session-id"
+        });
+
+        expect(url).toStartWith("https://media.example.test/jellyfin/Videos/item%2Fid/stream?");
+    });
+
     test("does not encode internal playback state into the media URL", () => {
         const url = buildJellyfinStreamUrl({
             ...baseOptions,

@@ -12,45 +12,58 @@ export function buildLibraryItemsEndpoint(
     collectionType: string
 ): string {
     const itemType = collectionType === "movies" ? "Movie" : "Series";
-    let endpoint = `/Users/${userId}/Items?ParentId=${libraryId}`;
-    endpoint += "&SortBy=SortName&SortOrder=Ascending";
-    endpoint += `&Fields=${FIELDS_LIBRARY_ITEMS}`;
-    endpoint += "&EnableImageTypes=Primary,Backdrop,Thumb";
-    endpoint += `&IncludeItemTypes=${itemType}`;
+    let endpoint = `/Items?userId=${encodeURIComponent(userId)}`;
+    endpoint += `&parentId=${encodeURIComponent(libraryId)}`;
+    endpoint += "&sortBy=SortName&sortOrder=Ascending";
+    endpoint += `&fields=${FIELDS_LIBRARY_ITEMS}`;
+    endpoint += "&enableImageTypes=Primary,Backdrop,Thumb";
+    endpoint += `&includeItemTypes=${itemType}`;
     return endpoint;
 }
 
 export function buildEpisodesEndpoint(userId: string, seriesId: string, seasonId: string): string {
-    return `/Shows/${seriesId}/Episodes?UserId=${userId}&SeasonId=${seasonId}` +
-        `&Fields=${FIELDS_EPISODES}`;
+    return `/Shows/${encodeURIComponent(seriesId)}/Episodes?userId=${encodeURIComponent(userId)}` +
+        `&seasonId=${encodeURIComponent(seasonId)}&fields=${FIELDS_EPISODES}`;
 }
 
 export function buildLatestItemsEndpoint(userId: string, itemType: string, limit: number): string {
-    return `/Users/${userId}/Items/Latest?IncludeItemTypes=${itemType}&Limit=${limit}` +
-        `&Fields=${FIELDS_HOME_ITEMS}`;
+    return `/Items/Latest?userId=${encodeURIComponent(userId)}` +
+        `&includeItemTypes=${encodeURIComponent(itemType)}&limit=${limit}` +
+        `&fields=${FIELDS_HOME_ITEMS}`;
 }
 
 export function buildResumeItemsEndpoint(userId: string): string {
-    return `/Users/${userId}/Items/Resume?Limit=10&MediaTypes=Video` +
-        `&Fields=${FIELDS_HOME_ITEMS}`;
+    return `/UserItems/Resume?userId=${encodeURIComponent(userId)}&limit=10&mediaTypes=Video` +
+        `&fields=${FIELDS_HOME_ITEMS}`;
 }
 
 export function buildNextUpItemsEndpoint(userId: string): string {
-    return `/Shows/NextUp?UserId=${userId}&Limit=10&Fields=${FIELDS_HOME_ITEMS}`;
+    return `/Shows/NextUp?userId=${encodeURIComponent(userId)}&limit=10&fields=${FIELDS_HOME_ITEMS}`;
 }
 
 export function buildSearchEndpoint(userId: string, query: string): string {
-    return `/Items?SearchTerm=${encodeURIComponent(query)}` +
-        `&UserId=${userId}` +
-        "&IncludeItemTypes=Movie,Series,Episode" +
-        `&Fields=${FIELDS_SEARCH}` +
-        "&Recursive=true&Limit=20&SortBy=SortName&SortOrder=Ascending";
+    return `/Items?searchTerm=${encodeURIComponent(query)}` +
+        `&userId=${encodeURIComponent(userId)}` +
+        "&includeItemTypes=Movie,Series,Episode" +
+        `&fields=${FIELDS_SEARCH}` +
+        "&recursive=true&limit=20&sortBy=SortName&sortOrder=Ascending";
 }
 
 export function buildSeasonsEndpoint(userId: string, seriesId: string): string {
-    return `/Shows/${seriesId}/Seasons?UserId=${userId}&Fields=${FIELDS_SEASONS}`;
+    return `/Shows/${encodeURIComponent(seriesId)}/Seasons?userId=${encodeURIComponent(userId)}` +
+        `&fields=${FIELDS_SEASONS}`;
 }
 
 export function buildSeriesNextUpEndpoint(userId: string, seriesId: string): string {
-    return `/Shows/NextUp?UserId=${userId}&SeriesId=${seriesId}&Limit=1&Fields=${FIELDS_HOME_ITEMS}`;
+    return `/Shows/NextUp?userId=${encodeURIComponent(userId)}` +
+        `&seriesId=${encodeURIComponent(seriesId)}&limit=1&fields=${FIELDS_HOME_ITEMS}`;
+}
+
+export function buildItemDetailsEndpoint(
+    userId: string,
+    itemId: string,
+    fields: string
+): string {
+    return `/Items/${encodeURIComponent(itemId)}?userId=${encodeURIComponent(userId)}` +
+        `&fields=${fields}`;
 }

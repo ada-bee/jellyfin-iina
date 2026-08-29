@@ -11,6 +11,7 @@ import { buildPlaybackInfoRequest } from "../shared/playback";
 
 import { CLIENT_NAME, CLIENT_VERSION, DEVICE_NAME, ITEM_DETAILS_FIELDS } from "./constants";
 import { isConfirmedAuthenticationFailure, JellyfinApiError } from "./apiError";
+import { buildItemDetailsEndpoint } from "./endpoints";
 import { state } from "./state";
 import { getDeviceId } from "./storage";
 import { normalizeServerUrl } from "./utils";
@@ -119,14 +120,14 @@ export async function fetchServerName(): Promise<string> {
 }
 
 export async function fetchItemDetails(itemId: string): Promise<JellyfinBaseItem | null> {
-    const endpoint = `/Users/${state.userId}/Items/${itemId}?Fields=${ITEM_DETAILS_FIELDS}`;
+    const endpoint = buildItemDetailsEndpoint(state.userId, itemId, ITEM_DETAILS_FIELDS);
     return await apiRequest<JellyfinBaseItem>("GET", endpoint);
 }
 
 export async function fetchPlaybackInfo(itemId: string): Promise<JellyfinPlaybackInfoResponse | null> {
     return await apiRequest<JellyfinPlaybackInfoResponse>(
         "POST",
-        `/Items/${itemId}/PlaybackInfo`,
+        `/Items/${encodeURIComponent(itemId)}/PlaybackInfo`,
         buildPlaybackInfoRequest(state.userId, IINA_DEVICE_PROFILE)
     );
 }

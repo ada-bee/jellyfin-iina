@@ -45,7 +45,7 @@ export function buildJellyfinStreamUrl(options: StreamUrlOptions): string {
     };
 
     const queryString = buildQueryString(params);
-    return `${baseUrl}/Videos/${options.itemId}/stream?${queryString}`;
+    return `${baseUrl}/Videos/${encodeURIComponent(options.itemId)}/stream?${queryString}`;
 }
 
 export function buildPlaybackInfoRequest(

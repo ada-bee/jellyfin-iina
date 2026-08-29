@@ -137,9 +137,10 @@ async function fetchItemDetails(itemId: string): Promise<JellyfinBaseItem | null
 
     return await requestJson<JellyfinBaseItem>(httpContext, {
         method: "GET",
-        endpoint: `/Users/${userId}/Items/${itemId}`,
+        endpoint: `/Items/${encodeURIComponent(itemId)}`,
         query: {
-            Fields: ITEM_DETAILS_FIELDS
+            userId: userId,
+            fields: ITEM_DETAILS_FIELDS
         }
     });
 }
@@ -153,11 +154,11 @@ async function fetchEpisodes(seriesId: string, seasonId: string): Promise<Jellyf
 
     const result = await requestJson<JellyfinBaseItemQuery>(httpContext, {
         method: "GET",
-        endpoint: `/Shows/${seriesId}/Episodes`,
+        endpoint: `/Shows/${encodeURIComponent(seriesId)}/Episodes`,
         query: {
-            UserId: userId,
-            SeasonId: seasonId,
-            Fields: FIELDS_EPISODES
+            userId: userId,
+            seasonId: seasonId,
+            fields: FIELDS_EPISODES
         }
     });
 
@@ -173,10 +174,10 @@ async function fetchSeasons(seriesId: string): Promise<JellyfinBaseItem[]> {
 
     const result = await requestJson<JellyfinBaseItemQuery>(httpContext, {
         method: "GET",
-        endpoint: `/Shows/${seriesId}/Seasons`,
+        endpoint: `/Shows/${encodeURIComponent(seriesId)}/Seasons`,
         query: {
-            UserId: userId,
-            Fields: FIELDS_SEASONS
+            userId: userId,
+            fields: FIELDS_SEASONS
         }
     });
 
@@ -227,7 +228,7 @@ async function buildAutoplayStream(itemId: string, context: {
 
     const playbackInfo = await requestJson<JellyfinPlaybackInfoResponse>(httpContext, {
         method: "POST",
-        endpoint: `/Items/${itemId}/PlaybackInfo`,
+        endpoint: `/Items/${encodeURIComponent(itemId)}/PlaybackInfo`,
         body: buildPlaybackInfoRequest(userId, IINA_DEVICE_PROFILE)
     });
 

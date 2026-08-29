@@ -143,7 +143,8 @@ async function requestMediaSegments(): Promise<void> {
             },
             {
                 method: "GET",
-                endpoint: `/MediaSegments/${playback.itemId}?includeSegmentTypes=Intro&includeSegmentTypes=Outro`
+                endpoint: `/MediaSegments/${encodeURIComponent(playback.itemId)}` +
+                    "?includeSegmentTypes=Intro&includeSegmentTypes=Outro"
             }
         );
 
