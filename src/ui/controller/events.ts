@@ -1,4 +1,5 @@
 import { ui } from "../dom";
+import { cancelScheduledBackdropPreview, scheduleBackdropPreview } from "../backdropPreview";
 import { findListCard, getCardContext, handleContentError } from "../render";
 import { state } from "../state";
 import { playItem } from "../playback";
@@ -28,7 +29,44 @@ export function setupEventListeners(): void {
     ui.clearSearchButton.addEventListener("click", handleClearSearch);
     ui.content.addEventListener("click", handleContentClick);
     ui.content.addEventListener("keydown", handleContentKeydown);
+    ui.content.addEventListener("pointerover", handleContentPointerOver);
+    ui.content.addEventListener("pointerout", handleContentPointerOut);
+    ui.content.addEventListener("focusin", handleContentFocusIn);
+    ui.content.addEventListener("focusout", handleContentFocusOut);
     ui.content.addEventListener("error", handleContentError, true);
+}
+
+function handleContentPointerOut(event: PointerEvent): void {
+    const card = findListCard(event.target);
+    const nextCard = findListCard(event.relatedTarget);
+    if (card && card !== nextCard) {
+        cancelScheduledBackdropPreview();
+    }
+}
+
+function handleContentPointerOver(event: PointerEvent): void {
+    const card = findListCard(event.target);
+    const previousCard = findListCard(event.relatedTarget);
+    if (!card || card === previousCard || !ui.content.contains(card)) {
+        return;
+    }
+    scheduleBackdropPreview(card);
+}
+
+function handleContentFocusIn(event: FocusEvent): void {
+    const card = findListCard(event.target);
+    if (!card || !ui.content.contains(card)) {
+        return;
+    }
+    scheduleBackdropPreview(card);
+}
+
+function handleContentFocusOut(event: FocusEvent): void {
+    const card = findListCard(event.target);
+    const nextCard = findListCard(event.relatedTarget);
+    if (card && card !== nextCard) {
+        cancelScheduledBackdropPreview();
+    }
 }
 
 function handleContentClick(event: MouseEvent): void {

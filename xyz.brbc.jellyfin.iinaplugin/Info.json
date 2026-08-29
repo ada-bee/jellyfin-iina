@@ -17,6 +17,7 @@
   "preferenceDefaults": {
     "skipSegmentsEnabled": true,
     "autoplayNextEpisodeEnabled": true,
+    "backdropPreviewsEnabled": true,
     "preferEpisodeImagesInNextUp": false
   },
   "permissions": [

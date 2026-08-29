@@ -2,8 +2,12 @@ export const MESSAGE_NAMES = {
     AuthUpdated: "authUpdated",
     AuthCleared: "authCleared",
     PlayItem: "playItem",
+    PreviewBackdrops: "previewBackdrops",
     RefreshSidebar: "refreshSidebar",
-    SidebarPreferences: "sidebarPreferences"
+    SidebarPreferences: "sidebarPreferences",
+    OverlayBackdrops: "overlayBackdrops",
+    OverlaySkipButton: "overlaySkipButton",
+    SkipSegment: "skipSegment"
 } as const;
 
 export type MessageName = typeof MESSAGE_NAMES[keyof typeof MESSAGE_NAMES];
@@ -27,21 +31,41 @@ export interface PlayItemPayload {
     title?: string;
 }
 
+export interface PreviewBackdropsPayload {
+    itemId: string;
+    backdropTags: string[];
+}
+
 export type RefreshSidebarPayload = EmptyPayload;
 
 export interface SidebarPreferencesPayload {
+    backdropPreviewsEnabled: boolean;
     preferEpisodeImagesInNextUp: boolean;
 }
+
+export interface OverlayBackdropsPayload {
+    urls: string[];
+}
+
+export interface OverlaySkipButtonPayload {
+    label: string;
+}
+
+export type SkipSegmentPayload = EmptyPayload;
 
 export interface UiToPluginMessagePayloads {
     authUpdated: AuthUpdatedPayload;
     authCleared: AuthClearedPayload;
     playItem: PlayItemPayload;
+    previewBackdrops: PreviewBackdropsPayload;
+    skipSegment: SkipSegmentPayload;
 }
 
 export interface PluginToUiMessagePayloads {
     refreshSidebar: RefreshSidebarPayload;
     sidebarPreferences: SidebarPreferencesPayload;
+    overlayBackdrops: OverlayBackdropsPayload;
+    overlaySkipButton: OverlaySkipButtonPayload;
 }
 
 export type MessagePayloads = UiToPluginMessagePayloads & PluginToUiMessagePayloads;

@@ -10,6 +10,7 @@ import {
     TICKS_PER_SECOND
 } from "./constants";
 import { requestJson } from "./http";
+import { setAmbientBackdropEligibility } from "./mediaOverlay";
 import { requestAutoplayNextEpisode, resetPlaylistAfterReplace, shouldRequestAutoplay } from "./autoplay";
 import { clearSegmentState, startSegmentPolling } from "./segments";
 import { getAuthState, getCurrentPlayback, PlaybackState, setCurrentPlayback } from "./state";
@@ -55,6 +56,7 @@ export function handlePlayItem(
     pendingWindowTitle = data.title ? sanitizeMediaTitle(String(data.title)) : null;
     logDebug("Jellyfin: Playing URL:", redactUrlForLog(url, 80));
 
+    setAmbientBackdropEligibility(false);
     isReplacingPlayback = true;
     shouldResetPlaylistOnNextLoad = true;
     if (data.title) {
@@ -86,11 +88,13 @@ export function initializePlaybackHandlers(options: PlaybackHandlersOptions): vo
         if (url.includes("Jellyfin.png")) {
             logDebug("Jellyfin: Splash loaded, showing sidebar");
             clearPlaybackState("splash loaded");
+            setAmbientBackdropEligibility(true);
             options.showSidebar();
             options.refreshSidebar();
             return;
         }
 
+        setAmbientBackdropEligibility(false);
         if (!url.includes("/Videos/") || !url.includes("playSessionId=")) {
             clearPlaybackState("non-Jellyfin file loaded");
             return;

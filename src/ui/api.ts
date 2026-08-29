@@ -1,6 +1,7 @@
 import type {
     JellyfinAuthenticationResult,
     JellyfinBaseItem,
+    JellyfinImageInfo,
     JellyfinPlaybackInfoResponse,
     JellyfinPublicSystemInfo
 } from "../shared/jellyfin";
@@ -109,6 +110,16 @@ export async function fetchServerName(): Promise<string> {
 export async function fetchItemDetails(itemId: string): Promise<JellyfinBaseItem | null> {
     const endpoint = `/Users/${state.userId}/Items/${itemId}?Fields=${ITEM_DETAILS_FIELDS}`;
     return await apiRequest<JellyfinBaseItem>("GET", endpoint);
+}
+
+export async function fetchBackdropTags(itemId: string): Promise<string[]> {
+    const endpoint = `/Items/${encodeURIComponent(itemId)}/Images`;
+    const images = await apiRequest<JellyfinImageInfo[]>("GET", endpoint);
+    return (images || [])
+        .filter(image => image.ImageType === "Backdrop" && Boolean(image.ImageTag))
+        .sort((left, right) => (left.ImageIndex || 0) - (right.ImageIndex || 0))
+        .map(image => image.ImageTag as string)
+        .slice(0, 10);
 }
 
 export async function fetchPlaybackInfo(itemId: string): Promise<JellyfinPlaybackInfoResponse | null> {
