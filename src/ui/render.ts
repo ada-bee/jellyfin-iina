@@ -1,6 +1,7 @@
 import type { JellyfinBaseItem } from "../shared/jellyfin";
 
 import { ui } from "./dom";
+import { buildJellyfinImageUrl } from "./images";
 import { state } from "./state";
 import { formatEpisodeNumber, formatRuntime } from "./utils";
 
@@ -507,24 +508,13 @@ function buildThumbProgressElement(item: JellyfinBaseItem): HTMLElement | null {
 }
 
 function getImageUrl(itemId: string, imageType: string = "Primary", maxWidth: number = 120): string {
-    if (!state.serverUrl || !itemId) {
-        return "";
-    }
-    try {
-        const baseUrl = new URL(state.serverUrl);
-        baseUrl.search = "";
-        baseUrl.hash = "";
-
-        const basePath = baseUrl.pathname.replace(/\/+$/, "");
-        const safeItemId = encodeURIComponent(itemId);
-        const safeType = encodeURIComponent(imageType);
-        baseUrl.pathname = `${basePath}/Items/${safeItemId}/Images/${safeType}`;
-        baseUrl.searchParams.set("maxWidth", String(maxWidth));
-        baseUrl.searchParams.set("quality", "90");
-        return baseUrl.toString();
-    } catch (error) {
-        return "";
-    }
+    return buildJellyfinImageUrl({
+        serverUrl: state.serverUrl,
+        accessToken: state.accessToken,
+        itemId,
+        imageType,
+        maxWidth
+    });
 }
 
 function getThumbnailUrl(item: JellyfinBaseItem, options: ListCardOptions = {}): string {
