@@ -3,7 +3,7 @@ import type { JellyfinBaseItem } from "../shared/jellyfin";
 import { TICKS_PER_MINUTE } from "./constants";
 import { ui } from "./dom";
 import { state, type SearchFilter } from "./state";
-import { formatEpisodeNumber, formatRuntime } from "./utils";
+import { formatEpisodeNumber, formatPaddedEpisodeNumber, formatRuntime } from "./utils";
 
 export interface ListCardOptions {
     showSeriesName?: boolean;
@@ -13,10 +13,12 @@ export interface ListCardOptions {
     useSeriesBackdropFallback?: boolean;
     showSeriesEpisodeCounts?: boolean;
     homePoster?: boolean;
+    homeThumbnail?: boolean;
     usePosterImage?: boolean;
+    hideRuntime?: boolean;
 }
 
-type HomeSectionId = "up-next" | "movies" | "tv";
+type HomeSectionId = "continue-watching" | "new" | "movies" | "series";
 
 export interface CardContext {
     id: string;
@@ -86,9 +88,10 @@ export function renderListCards(items: JellyfinBaseItem[], options: ListCardOpti
 }
 
 export function renderHomeSections(
-    nextUpItems: JellyfinBaseItem[],
+    continueWatchingItems: JellyfinBaseItem[],
+    newestEpisodes: JellyfinBaseItem[],
     recentMovies: JellyfinBaseItem[],
-    recentEpisodes: JellyfinBaseItem[]
+    recentSeries: JellyfinBaseItem[]
 ): void {
     const home = document.createElement("div");
     home.className = "home-sections";
@@ -97,39 +100,74 @@ export function renderHomeSections(
         title: string;
         items: JellyfinBaseItem[];
         options: ListCardOptions;
+        libraryType?: string;
     }> = [
         {
-            id: "up-next",
-            title: "Up Next",
-            items: nextUpItems,
-            options: { homePoster: true, usePosterImage: true, showSeriesName: true, showEpisodeNumber: true }
+            id: "continue-watching",
+            title: "Continue watching",
+            items: continueWatchingItems,
+            options: {
+                homeThumbnail: true,
+                showSeriesName: true,
+                showEpisodeNumber: true,
+                hideRuntime: true,
+                ...getNextUpImageOptions()
+            }
+        },
+        {
+            id: "new",
+            title: "New episodes",
+            items: newestEpisodes,
+            options: {
+                homeThumbnail: true,
+                showSeriesName: true,
+                showEpisodeNumber: true,
+                hideRuntime: true,
+                useEpisodeThumbnail: true
+            }
         },
         {
             id: "movies",
             title: "Movies",
             items: recentMovies,
-            options: { homePoster: true, usePosterImage: true, showSeriesName: false }
+            options: { homePoster: true, usePosterImage: true, showSeriesName: false },
+            libraryType: "movies"
         },
         {
-            id: "tv",
-            title: "TV",
-            items: recentEpisodes,
-            options: { homePoster: true, usePosterImage: true, showSeriesName: true, showEpisodeNumber: true }
+            id: "series",
+            title: "Series",
+            items: recentSeries,
+            options: { homePoster: true, usePosterImage: true, showSeriesName: false },
+            libraryType: "tvshows"
         }
     ];
 
-    sections.forEach(({ id, title, items, options }) => {
+    sections.forEach(({ id, title, items, options, libraryType }) => {
         const section = document.createElement("section");
         section.className = "home-shelf";
         const heading = document.createElement("h3");
-        heading.textContent = title;
+        if (libraryType) {
+            const link = document.createElement("button");
+            link.className = "home-section-link";
+            link.type = "button";
+            link.dataset.homeLibrary = libraryType;
+            link.dataset.homeLibraryName = title;
+            link.setAttribute("aria-label", `Open ${title}`);
+            const label = document.createElement("span");
+            label.textContent = title;
+            link.append(label, buildDisclosureChevron());
+            heading.appendChild(link);
+        } else {
+            heading.textContent = title;
+        }
         section.appendChild(heading);
 
         if (items.length > 0) {
             const rail = document.createElement("div");
-            rail.className = "home-poster-rail";
+            rail.className = "home-media-rail";
+            rail.classList.toggle("home-media-rail--thumbnail", Boolean(options.homeThumbnail));
             const row = document.createElement("div");
-            row.className = "home-poster-row";
+            row.className = "home-media-row";
             row.setAttribute("aria-label", title);
             items.forEach(item => row.appendChild(buildListCardElement(item, options)));
             row.addEventListener("scroll", () => updateHomeRailShadow(row), { passive: true });
@@ -152,6 +190,24 @@ export function renderHomeSections(
     ui.content.replaceChildren(home);
     installHomeRailResizeHandler();
     requestAnimationFrame(updateAllHomeRailShadows);
+}
+
+function buildDisclosureChevron(): SVGElement {
+    const namespace = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(namespace, "svg");
+    svg.setAttribute("width", "13");
+    svg.setAttribute("height", "13");
+    svg.setAttribute("viewBox", "0 0 14 14");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS(namespace, "path");
+    path.setAttribute("d", "m5 2.5 4 4.5-4 4.5");
+    path.setAttribute("stroke", "currentColor");
+    path.setAttribute("stroke-width", "1.6");
+    path.setAttribute("stroke-linecap", "round");
+    path.setAttribute("stroke-linejoin", "round");
+    svg.appendChild(path);
+    return svg;
 }
 
 function buildHomeRailButton(row: HTMLElement, sectionTitle: string, direction: -1 | 1): HTMLButtonElement {
@@ -179,11 +235,11 @@ function installHomeRailResizeHandler(): void {
 }
 
 function updateAllHomeRailShadows(): void {
-    ui.content.querySelectorAll<HTMLElement>(".home-poster-row").forEach(updateHomeRailShadow);
+    ui.content.querySelectorAll<HTMLElement>(".home-media-row").forEach(updateHomeRailShadow);
 }
 
 function updateHomeRailShadow(row: HTMLElement): void {
-    const rail = row.closest<HTMLElement>(".home-poster-rail");
+    const rail = row.closest<HTMLElement>(".home-media-rail");
     if (!rail) {
         return;
     }
@@ -351,6 +407,7 @@ function buildListCardElement(item: JellyfinBaseItem, options: ListCardOptions):
     const card = document.createElement("div");
     card.className = "list-card";
     card.classList.toggle("home-poster-card", Boolean(options.homePoster));
+    card.classList.toggle("home-thumbnail-card", Boolean(options.homeThumbnail));
     applyCardContext(card, item, displayName, seriesId, seasonId);
 
     const thumbWrapper = document.createElement("div");
@@ -439,6 +496,16 @@ function getCardCopy(item: JellyfinBaseItem, options: ListCardOptions): { title:
     const metadata: string[] = [];
 
     if (item.Type === "Episode") {
+        if (options.homeThumbnail) {
+            if (item.SeriesName) {
+                metadata.push(String(item.SeriesName));
+            }
+            if (options.showEpisodeNumber) {
+                metadata.push(formatPaddedEpisodeNumber(item.ParentIndexNumber, item.IndexNumber));
+            }
+            return { title: itemName, metadata: metadata.join(" · ") };
+        }
+
         const seriesIsTitle = options.showSeriesName !== false && Boolean(item.SeriesName);
         if (options.showEpisodeNumber) {
             const episodeNumber = formatEpisodeNumber(item.ParentIndexNumber, item.IndexNumber);
@@ -451,7 +518,7 @@ function getCardCopy(item: JellyfinBaseItem, options: ListCardOptions): { title:
         } else if (options.showSeriesName !== false && item.SeriesName) {
             metadata.push(String(item.SeriesName));
         }
-        if (!hasProgress(item) && runtime) {
+        if (!options.hideRuntime && !hasProgress(item) && runtime) {
             metadata.push(runtime);
         }
         return {
@@ -463,7 +530,7 @@ function getCardCopy(item: JellyfinBaseItem, options: ListCardOptions): { title:
     if (item.ProductionYear) {
         metadata.push(String(item.ProductionYear));
     }
-    if (runtime) {
+    if (!options.hideRuntime && runtime) {
         metadata.push(runtime);
     }
     const episodeCount = options.showSeriesEpisodeCounts ? getSeriesEpisodeCount(item) : "";
@@ -648,7 +715,7 @@ function getEmptyStateDetail(message: string): string {
 }
 
 function getHomeEmptyDetail(section: HomeSectionId): string {
-    if (section === "up-next") {
+    if (section === "continue-watching") {
         return "Partially watched movies and your next episodes will appear here.";
     }
     return "Newly added titles will appear here.";

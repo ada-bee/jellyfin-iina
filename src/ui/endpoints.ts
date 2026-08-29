@@ -12,11 +12,13 @@ export function buildLibraryItemsEndpoint(
     collectionType: string
 ): string {
     const itemType = collectionType === "movies" ? "Movie" : "Series";
-    let endpoint = `/Users/${userId}/Items?ParentId=${libraryId}`;
+    const scope = libraryId ? `ParentId=${encodeURIComponent(libraryId)}` : "Recursive=true";
+    let endpoint = `/Users/${userId}/Items?${scope}`;
     endpoint += "&SortBy=SortName&SortOrder=Ascending";
     endpoint += `&Fields=${FIELDS_LIBRARY_ITEMS}`;
     endpoint += "&EnableImageTypes=Primary,Backdrop,Thumb";
     endpoint += `&IncludeItemTypes=${itemType}`;
+    endpoint += "&Limit=100";
     return endpoint;
 }
 
@@ -27,7 +29,19 @@ export function buildEpisodesEndpoint(userId: string, seriesId: string, seasonId
 
 export function buildLatestItemsEndpoint(userId: string, itemType: string, limit: number): string {
     return `/Users/${userId}/Items/Latest?IncludeItemTypes=${itemType}&Limit=${limit}` +
-        `&Fields=${FIELDS_HOME_ITEMS}`;
+        `&Fields=${FIELDS_HOME_ITEMS}&GroupItems=false`;
+}
+
+export function buildItemsByIdsEndpoint(userId: string, itemIds: string[], itemType: string): string {
+    const ids = itemIds.map(itemId => encodeURIComponent(itemId)).join(",");
+    return `/Users/${userId}/Items?Ids=${ids}&IncludeItemTypes=${itemType}` +
+        `&Fields=${FIELDS_HOME_ITEMS}&EnableImageTypes=Primary,Backdrop,Thumb`;
+}
+
+export function buildNewestSeasonsEndpoint(userId: string, startIndex: number, limit: number): string {
+    return `/Users/${userId}/Items?Recursive=true&IncludeItemTypes=Season` +
+        `&SortBy=DateCreated&SortOrder=Descending&StartIndex=${startIndex}&Limit=${limit}` +
+        "&Fields=SeriesId,ParentId";
 }
 
 export function buildResumeItemsEndpoint(userId: string): string {

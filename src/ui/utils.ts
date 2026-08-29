@@ -50,6 +50,12 @@ export function formatEpisodeNumber(season?: number | null, episode?: number | n
     return `S${season || 0}E${episode || 0}`;
 }
 
+export function formatPaddedEpisodeNumber(season?: number | null, episode?: number | null): string {
+    const seasonNumber = String(season ?? 0).padStart(2, "0");
+    const episodeNumber = String(episode ?? 0).padStart(2, "0");
+    return `S${seasonNumber} E${episodeNumber}`;
+}
+
 export function normalizeQuery(value: string): string {
     return value.trim().toLowerCase();
 }

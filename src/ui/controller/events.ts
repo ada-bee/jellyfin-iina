@@ -11,7 +11,7 @@ import {
     resetSearchState
 } from "./navigation";
 import { handleLogin } from "./session";
-import { loadEpisodes, loadSeasons } from "./loaders";
+import { loadEpisodes, loadItems, loadSeasons } from "./loaders";
 
 export function setupEventListeners(): void {
     ui.loginForm.addEventListener("submit", handleLogin);
@@ -34,6 +34,14 @@ export function setupEventListeners(): void {
 }
 
 function handleContentClick(event: MouseEvent): void {
+    const libraryLink = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>("[data-home-library]");
+    if (libraryLink) {
+        const collectionType = libraryLink.dataset.homeLibrary || "";
+        const name = libraryLink.dataset.homeLibraryName || "Library";
+        void loadItems("", name, collectionType);
+        return;
+    }
+
     const card = findListCard(event.target);
     if (!card || !ui.content.contains(card)) {
         return;

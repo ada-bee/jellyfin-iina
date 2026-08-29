@@ -111,6 +111,14 @@ const recentEpisodes = [
     episode("relay", "Relay", "Orbital", 1, 7, 44)
 ];
 
+const recentSeries = [
+    series("series-still-water", "Still Water", 2025, 7, 10),
+    series("series-north-station", "North Station", 2025, 4, 10),
+    series("series-orbital", "Orbital", 2024, 7, 8),
+    series("series-quiet-city", "The Quiet City", 2024, 3, 8),
+    series("series-night-train", "Night Train", 2026, 1, 6)
+];
+
 const searchResults = [
     series("series-north-station", "North Station", 2025, 4, 10),
     episode("the-plan", "The Plan", "North Station", 1, 5, 48, 63),
@@ -157,7 +165,7 @@ const previewRenderers: Record<PreviewName, () => void> = {
     home() {
         prepareBrowseView();
         updateTitle("Home");
-        renderHomeSections(upNextItems, recentMovies, recentEpisodes);
+        renderHomeSections(upNextItems, recentEpisodes, recentMovies, recentSeries);
     },
     search() {
         prepareBrowseView();
@@ -264,6 +272,15 @@ function setupFixturePreview(): void {
         }
     });
     ui.content.addEventListener("click", event => {
+        const libraryLink = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>("[data-home-library]");
+        if (libraryLink) {
+            const collectionType = libraryLink.dataset.homeLibrary || "movies";
+            const name = libraryLink.dataset.homeLibraryName || "Library";
+            state.breadcrumb = [{ type: "library", id: `preview-${collectionType}`, name, collectionType }];
+            updateTitle(name);
+            renderListCards(collectionType === "movies" ? recentMovies : recentSeries, { showSeriesName: false });
+            return;
+        }
         const card = findListCard(event.target);
         const context = getCardContext(card);
         if (context?.type === "Series") {

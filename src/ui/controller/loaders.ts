@@ -15,8 +15,10 @@ import {
 import { state } from "../state";
 import {
     buildEpisodesEndpoint,
+    buildItemsByIdsEndpoint,
     buildLatestItemsEndpoint,
     buildLibraryItemsEndpoint,
+    buildNewestSeasonsEndpoint,
     buildNextUpItemsEndpoint,
     buildResumeItemsEndpoint,
     buildSearchEndpoint,
@@ -228,15 +230,16 @@ export async function loadHome(): Promise<void> {
     showLoading();
 
     try {
-        const [nextUpItems, recentMovies, recentEpisodes] = await Promise.all([
+        const [continueWatchingItems, newestEpisodes, recentMovies, recentSeries] = await Promise.all([
             loadHomeItems(5),
+            loadLatestItems("Episode", 5),
             loadLatestItems("Movie", 5),
-            loadLatestItems("Episode", 5)
+            loadSeriesWithNewestSeasons(5)
         ]);
         if (requestId !== viewRequestId) {
             return;
         }
-        renderHomeSections(nextUpItems, recentMovies, recentEpisodes);
+        renderHomeSections(continueWatchingItems, newestEpisodes, recentMovies, recentSeries);
         hideLoading();
     } catch (error) {
         if (requestId !== viewRequestId) {
@@ -257,6 +260,51 @@ async function loadLatestItems(itemType: string, limit: number): Promise<Jellyfi
     const endpoint = buildLatestItemsEndpoint(state.userId, itemType, limit);
     const data = await apiRequest<JellyfinBaseItem[]>("GET", endpoint);
     return (data || []).filter(item => isSupportedItem(item));
+}
+
+async function loadSeriesWithNewestSeasons(limit: number): Promise<JellyfinBaseItem[]> {
+    const pageSize = 20;
+    const maximumSeasonRecords = 100;
+    const seriesIds: string[] = [];
+    const seen = new Set<string>();
+
+    for (let startIndex = 0; startIndex < maximumSeasonRecords; startIndex += pageSize) {
+        const endpoint = buildNewestSeasonsEndpoint(state.userId, startIndex, pageSize);
+        const data = await apiRequest<{ Items?: JellyfinBaseItem[] }>("GET", endpoint);
+        const seasons = data?.Items || [];
+
+        for (const season of seasons) {
+            const seriesId = season.SeriesId || season.ParentId;
+            if (seriesId && !seen.has(seriesId)) {
+                seen.add(seriesId);
+                seriesIds.push(seriesId);
+                if (seriesIds.length === limit) {
+                    break;
+                }
+            }
+        }
+
+        if (seriesIds.length === limit || seasons.length < pageSize) {
+            break;
+        }
+    }
+
+    if (seriesIds.length === 0) {
+        return [];
+    }
+
+    const endpoint = buildItemsByIdsEndpoint(state.userId, seriesIds, "Series");
+    const data = await apiRequest<{ Items?: JellyfinBaseItem[] }>("GET", endpoint);
+    const seriesById = new Map(
+        (data?.Items || [])
+            .filter(item => item.Id && item.Type === "Series")
+            .map(item => [item.Id as string, item])
+    );
+
+    return seriesIds
+        .map(seriesId => seriesById.get(seriesId))
+        .filter((item): item is JellyfinBaseItem => Boolean(item))
+        .slice(0, limit);
 }
 
 async function loadResumeItems(): Promise<JellyfinBaseItem[]> {
