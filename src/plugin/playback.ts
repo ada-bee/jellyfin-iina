@@ -18,6 +18,7 @@ import { requestJson } from "./http";
 import { clearPlaybackHandoffs, registerPlaybackHandoff, takePlaybackHandoff } from "./handoffs";
 import { requestAutoplayNextEpisode, resetPlaylistAfterReplace, shouldRequestAutoplay } from "./autoplay";
 import { clearSegmentState, startSegmentPolling } from "./segments";
+import { loadExternalSubtitles } from "./subtitles";
 import {
     getAuthState,
     getCurrentPlayback,
@@ -183,6 +184,7 @@ function startPlaybackSession(playback: PlaybackState, options: PlaybackHandlers
         pendingWindowTitle = null;
     }
 
+    loadExternalSubtitles(playback);
     void reportPlaybackStart();
     startSegmentPolling();
 

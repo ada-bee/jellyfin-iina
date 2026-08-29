@@ -4,6 +4,8 @@ import type { JellyfinPlaybackInfoResponse } from "./jellyfin";
 
 import { IINA_DEVICE_PROFILE } from "./deviceProfile";
 import {
+    buildAuthenticatedDeliveryUrl,
+    buildExternalSubtitleTracks,
     buildJellyfinStreamUrl,
     buildPlaybackHandoff,
     buildPlaybackInfoRequest,
@@ -61,7 +63,16 @@ describe("Jellyfin playback negotiation", () => {
                 RunTimeTicks: 123,
                 SupportsDirectPlay: true,
                 DefaultAudioStreamIndex: 2,
-                DefaultSubtitleStreamIndex: 4
+                DefaultSubtitleStreamIndex: 4,
+                MediaStreams: [{
+                    Type: "Subtitle",
+                    Index: 4,
+                    DeliveryMethod: "External",
+                    DeliveryUrl: "/Videos/item-id/Subtitles/4/0/Stream.srt",
+                    DisplayTitle: "English",
+                    Language: "eng",
+                    IsForced: true
+                }]
             }]
         };
 
@@ -75,8 +86,81 @@ describe("Jellyfin playback negotiation", () => {
             runtimeTicks: 123,
             playMethod: "DirectPlay",
             audioStreamIndex: 2,
-            subtitleStreamIndex: 4
+            subtitleStreamIndex: 4,
+            externalSubtitles: [{
+                index: 4,
+                title: "English",
+                language: "eng",
+                isDefault: true,
+                isForced: true
+            }]
         });
+        expect(handoff.externalSubtitles[0]?.url).toBe(
+            "https://media.example.test/jellyfin/Videos/item-id/Subtitles/4/0/Stream.srt?api_key=secret%20token"
+        );
+    });
+});
+
+describe("external subtitle delivery", () => {
+    test("keeps only externally deliverable subtitle streams", () => {
+        const tracks = buildExternalSubtitleTracks({
+            DefaultSubtitleStreamIndex: 3,
+            MediaStreams: [
+                {
+                    Type: "Subtitle",
+                    Index: 3,
+                    DeliveryMethod: "External",
+                    DeliveryUrl: "/Videos/item/Subtitles/3/0/Stream.srt",
+                    IsHearingImpaired: true
+                },
+                {
+                    Type: "Subtitle",
+                    Index: 4,
+                    DeliveryMethod: "Embed"
+                },
+                {
+                    Type: "Audio",
+                    Index: 5,
+                    DeliveryMethod: "External",
+                    DeliveryUrl: "/Audio/5"
+                }
+            ]
+        }, baseOptions.serverUrl, baseOptions.accessToken);
+
+        expect(tracks).toHaveLength(1);
+        expect(tracks[0]).toMatchObject({
+            index: 3,
+            isDefault: true,
+            isHearingImpaired: true
+        });
+    });
+
+    test("does not duplicate an existing Jellyfin access token", () => {
+        const url = buildAuthenticatedDeliveryUrl(
+            baseOptions.serverUrl,
+            "/Videos/item/Subtitles/3/0/Stream.srt?api_key=already-present",
+            baseOptions.accessToken
+        );
+
+        expect(url.match(/api_key=/g)).toHaveLength(1);
+    });
+
+    test("does not send the Jellyfin token to another host", () => {
+        const url = buildAuthenticatedDeliveryUrl(
+            baseOptions.serverUrl,
+            "https://subtitles.example.test/subtitle.srt",
+            baseOptions.accessToken
+        );
+
+        expect(url).toBe("https://subtitles.example.test/subtitle.srt");
+    });
+
+    test("rejects insecure subtitle delivery", () => {
+        expect(buildAuthenticatedDeliveryUrl(
+            baseOptions.serverUrl,
+            "http://subtitles.example.test/subtitle.srt",
+            baseOptions.accessToken
+        )).toBe("");
     });
 });
 

@@ -7,6 +7,7 @@ import type {
     MediaSegmentDto,
     MediaSegmentDtoQueryResult,
     MediaSourceInfo,
+    MediaStream,
     PlaybackInfoDto,
     PlaybackInfoResponse,
     PlaybackProgressInfo,
@@ -25,6 +26,7 @@ export type JellyfinDeviceProfile = DeviceProfile;
 export type JellyfinMediaSegment = MediaSegmentDto;
 export type JellyfinMediaSegmentQuery = MediaSegmentDtoQueryResult;
 export type JellyfinMediaSourceInfo = MediaSourceInfo;
+export type JellyfinMediaStream = MediaStream;
 export type JellyfinPlaybackInfoDto = PlaybackInfoDto;
 export type JellyfinPlaybackInfoResponse = PlaybackInfoResponse;
 export type JellyfinPlaybackProgressInfo = PlaybackProgressInfo;
@@ -42,6 +44,16 @@ export interface MediaSegment {
     endTicks: number | null;
 }
 
+export interface ExternalSubtitleTrack {
+    index: number;
+    url: string;
+    title: string;
+    language: string;
+    isDefault: boolean;
+    isForced: boolean;
+    isHearingImpaired: boolean;
+}
+
 export interface PlaybackContext {
     itemId: string;
     mediaSourceId: string;
@@ -53,6 +65,7 @@ export interface PlaybackContext {
     playMethod: JellyfinPlayMethod;
     audioStreamIndex?: number | null;
     subtitleStreamIndex?: number | null;
+    externalSubtitles: ExternalSubtitleTrack[];
     seriesId?: string;
     seasonId?: string;
     episodeIndex?: number | null;

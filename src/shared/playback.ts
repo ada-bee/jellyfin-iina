@@ -1,7 +1,9 @@
 import type {
+    ExternalSubtitleTrack,
     JellyfinBaseItem,
     JellyfinDeviceProfile,
     JellyfinMediaSourceInfo,
+    JellyfinMediaStream,
     JellyfinPlaybackInfoDto,
     JellyfinPlaybackInfoResponse,
     PlaybackHandoff
@@ -108,10 +110,111 @@ export function buildPlaybackHandoff(
         playMethod: "DirectPlay",
         audioStreamIndex: mediaSource.DefaultAudioStreamIndex,
         subtitleStreamIndex: mediaSource.DefaultSubtitleStreamIndex,
+        externalSubtitles: buildExternalSubtitleTracks(
+            mediaSource,
+            options.serverUrl,
+            options.accessToken
+        ),
         seriesId: options.seriesId,
         seasonId: options.seasonId,
         episodeIndex: options.episodeIndex
     };
+}
+
+export function buildExternalSubtitleTracks(
+    mediaSource: JellyfinMediaSourceInfo,
+    serverUrl: string,
+    accessToken: string
+): ExternalSubtitleTrack[] {
+    return (mediaSource.MediaStreams || [])
+        .filter(isExternalSubtitleStream)
+        .map(stream => buildExternalSubtitleTrack(
+            stream,
+            mediaSource.DefaultSubtitleStreamIndex,
+            serverUrl,
+            accessToken
+        ))
+        .filter((track): track is ExternalSubtitleTrack => track !== null);
+}
+
+function isExternalSubtitleStream(stream: JellyfinMediaStream): boolean {
+    return stream.Type === "Subtitle"
+        && stream.DeliveryMethod === "External"
+        && typeof stream.Index === "number"
+        && Boolean(stream.DeliveryUrl);
+}
+
+function buildExternalSubtitleTrack(
+    stream: JellyfinMediaStream,
+    defaultSubtitleStreamIndex: number | null | undefined,
+    serverUrl: string,
+    accessToken: string
+): ExternalSubtitleTrack | null {
+    const index = stream.Index;
+    const deliveryUrl = stream.DeliveryUrl || "";
+    if (index === undefined || !deliveryUrl) {
+        return null;
+    }
+
+    const url = buildAuthenticatedDeliveryUrl(serverUrl, deliveryUrl, accessToken);
+    if (!url) {
+        return null;
+    }
+
+    return {
+        index,
+        url,
+        title: stream.DisplayTitle || stream.Title || stream.Language || `Subtitle ${index}`,
+        language: stream.Language || "",
+        isDefault: defaultSubtitleStreamIndex === index,
+        isForced: Boolean(stream.IsForced),
+        isHearingImpaired: Boolean(stream.IsHearingImpaired)
+    };
+}
+
+export function buildAuthenticatedDeliveryUrl(
+    serverUrl: string,
+    deliveryUrl: string,
+    accessToken: string
+): string {
+    const baseUrl = normalizeServerUrl(serverUrl);
+    const trimmedDeliveryUrl = deliveryUrl.trim();
+    if (!baseUrl || !trimmedDeliveryUrl) {
+        return "";
+    }
+
+    const isAbsolute = /^https?:\/\//i.test(trimmedDeliveryUrl);
+    const resolvedUrl = isAbsolute
+        ? trimmedDeliveryUrl
+        : `${baseUrl}/${trimmedDeliveryUrl.replace(/^\/+/, "")}`;
+    if (!/^https:\/\//i.test(resolvedUrl)) {
+        return "";
+    }
+
+    const serverOrigin = getHttpOrigin(baseUrl);
+    const deliveryOrigin = getHttpOrigin(resolvedUrl);
+    if (!accessToken || !serverOrigin || serverOrigin !== deliveryOrigin || hasAccessToken(resolvedUrl)) {
+        return resolvedUrl;
+    }
+
+    return appendQueryParameter(resolvedUrl, "api_key", accessToken);
+}
+
+function getHttpOrigin(url: string): string {
+    const match = url.match(/^https?:\/\/[^/?#]+/i);
+    return match ? match[0].toLowerCase() : "";
+}
+
+function hasAccessToken(url: string): boolean {
+    return /[?&](?:api_key|access_token|x-emby-token)=/i.test(url);
+}
+
+function appendQueryParameter(url: string, key: string, value: string): string {
+    const fragmentIndex = url.indexOf("#");
+    const fragment = fragmentIndex === -1 ? "" : url.substring(fragmentIndex);
+    const urlWithoutFragment = fragmentIndex === -1 ? url : url.substring(0, fragmentIndex);
+    const separator = urlWithoutFragment.includes("?") ? "&" : "?";
+    return `${urlWithoutFragment}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}${fragment}`;
 }
 
 export function buildJellyfinWindowTitle(item: JellyfinBaseItem | null, fallbackName: string): string {

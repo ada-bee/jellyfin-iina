@@ -1,10 +1,8 @@
 import { DEBUG_LOGS } from "./constants";
 
-const { console } = iina;
-
 export function logDebug(...args: unknown[]): void {
     if (DEBUG_LOGS) {
-        console.log(...args);
+        iina.console.log(...args);
     }
 }
 
