@@ -172,7 +172,7 @@ const previewRenderers: Record<PreviewName, () => void> = {
     loading() {
         showBrowseView();
         updateTitle("Home");
-        showLoading();
+        showLoading("home");
     },
     empty() {
         showBrowseView();

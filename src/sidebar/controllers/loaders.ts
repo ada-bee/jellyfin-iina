@@ -107,7 +107,7 @@ async function fetchAndRenderLibraryItems(options: LibraryLoadOptions): Promise<
     setCurrentLibraryContext(library, options);
 
     updateTitle(options.libraryName);
-    showLoading();
+    showLoading("library");
 
     try {
         const page = await sidebarRequests.library.loadPage({
@@ -233,7 +233,7 @@ async function fetchAndRenderMovieDetails(options: {
         return;
     }
 
-    showLoading();
+    showLoading("details");
     try {
         const movie = await sidebarRequests.details.loadItem(options.movieId);
         if (!viewRequests.isCurrent(requestId)) {
@@ -280,7 +280,7 @@ async function fetchAndRenderSeriesDetails(options: {
         return;
     }
 
-    showLoading();
+    showLoading("details");
     try {
         const { details, nextUpItem, seasons } = await sidebarRequests.details.loadSeries(
             state.userId,
@@ -447,7 +447,7 @@ export async function loadHome(forceReload: boolean = false): Promise<void> {
         return;
     }
 
-    showLoading();
+    showLoading("home");
 
     try {
         const home = await sidebarRequests.home.load(state.userId, HOME_SECTION_ITEM_LIMIT);
@@ -535,7 +535,7 @@ export async function performSearch(query: string): Promise<void> {
     const requestId = beginViewRequest();
     sidebarStore.setRetryOperation({ kind: "search", query });
     updateTitle("Search Results");
-    showLoading();
+    showLoading("search");
     window.scrollTo(0, 0);
 
     try {

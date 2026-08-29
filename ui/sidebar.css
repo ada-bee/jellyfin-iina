@@ -298,7 +298,8 @@ button {
     overflow: hidden;
 }
 
-#browse-view.home-view .content {
+#browse-view.home-view .content,
+#browse-view.home-view .loading {
     height: calc(100vh - 60px);
     height: calc(100dvh - 60px);
     padding-top: 8px;
@@ -308,7 +309,8 @@ button {
     scrollbar-width: none;
 }
 
-#browse-view.home-view .content::-webkit-scrollbar {
+#browse-view.home-view .content::-webkit-scrollbar,
+#browse-view.home-view .loading::-webkit-scrollbar {
     display: none;
 }
 
@@ -1121,15 +1123,57 @@ button {
 
 /* Loading, empty, and error states */
 .loading {
-    display: flex;
-    flex-direction: column;
-    gap: 24px;
+    min-width: 0;
 }
 
 .skeleton-card {
+    min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+}
+
+.loading-skeleton {
+    display: none;
+}
+
+.loading[data-layout="home"] .loading-skeleton--home,
+.loading[data-layout="library"] .loading-skeleton--library {
+    display: grid;
+}
+
+.loading[data-layout="search"] .loading-skeleton--search,
+.loading[data-layout="details"] .loading-skeleton--details {
+    display: flex;
+}
+
+.loading-skeleton--home .home-media-row {
+    overflow: hidden;
+}
+
+.skeleton-heading {
+    width: 132px;
+    height: 20px;
+    margin-block: 3.5px;
+}
+
+.skeleton-heading--short {
+    width: 76px;
+}
+
+.home-thumbnail-card .skeleton-artwork {
+    flex: none;
+}
+
+.home-thumbnail-card .skeleton-line {
+    margin-inline: auto;
+}
+
+.home-thumbnail-card .skeleton-line--title {
+    width: 72%;
+}
+
+.home-thumbnail-card .skeleton-line:not(.skeleton-line--title) {
+    width: 48%;
 }
 
 .skeleton-artwork,
@@ -1153,6 +1197,26 @@ button {
 .skeleton-line--title {
     width: 66%;
     height: 13px;
+}
+
+.skeleton-line--metadata {
+    width: 34%;
+}
+
+.skeleton-line--tagline {
+    width: 72%;
+    height: 13px;
+    margin-top: 14px;
+}
+
+.skeleton-line--overview {
+    width: 100%;
+    margin-top: 8px;
+}
+
+.skeleton-line--overview-short {
+    width: 78%;
+    margin-top: 5px;
 }
 
 .skeleton-artwork::after,

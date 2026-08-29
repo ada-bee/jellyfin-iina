@@ -27,7 +27,7 @@ async function loadLivePreview(): Promise<void> {
     document.title = "Jellyfin sidebar — live";
     showBrowseView();
     updateTitle("Home");
-    showLoading();
+    showLoading("home");
 
     try {
         const session = await fetchLivePreviewSession();

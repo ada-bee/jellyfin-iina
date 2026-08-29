@@ -50,9 +50,81 @@
 
         <main id="content" class="content"></main>
 
-        <div id="loading" class="loading hidden" aria-label="Loading">
-            <div class="skeleton-card"><div class="skeleton-artwork"></div><div class="skeleton-line skeleton-line--title"></div><div class="skeleton-line"></div></div>
-            <div class="skeleton-card"><div class="skeleton-artwork"></div><div class="skeleton-line skeleton-line--title"></div><div class="skeleton-line"></div></div>
+        <div id="loading" class="loading hidden" data-layout="home" role="status" aria-label="Loading">
+            <div class="loading-skeleton loading-skeleton--home home-sections" aria-hidden="true">
+                <section class="home-shelf">
+                    <div class="skeleton-line skeleton-heading"></div>
+                    <div class="home-media-rail home-media-rail--thumbnail">
+                        <div class="home-media-row">
+                            <div class="skeleton-card home-thumbnail-card"><div class="skeleton-artwork thumb-wrapper"></div><div class="list-body"><div class="skeleton-line skeleton-line--title"></div><div class="skeleton-line"></div></div></div>
+                            <div class="skeleton-card home-thumbnail-card"><div class="skeleton-artwork thumb-wrapper"></div><div class="list-body"><div class="skeleton-line skeleton-line--title"></div><div class="skeleton-line"></div></div></div>
+                        </div>
+                    </div>
+                </section>
+                <section class="home-shelf">
+                    <div class="skeleton-line skeleton-heading skeleton-heading--short"></div>
+                    <div class="home-media-rail home-media-rail--thumbnail">
+                        <div class="home-media-row">
+                            <div class="skeleton-card home-thumbnail-card"><div class="skeleton-artwork thumb-wrapper"></div><div class="list-body"><div class="skeleton-line skeleton-line--title"></div><div class="skeleton-line"></div></div></div>
+                            <div class="skeleton-card home-thumbnail-card"><div class="skeleton-artwork thumb-wrapper"></div><div class="list-body"><div class="skeleton-line skeleton-line--title"></div><div class="skeleton-line"></div></div></div>
+                        </div>
+                    </div>
+                </section>
+                <section class="home-shelf">
+                    <div class="skeleton-line skeleton-heading skeleton-heading--short"></div>
+                    <div class="home-media-rail">
+                        <div class="home-media-row">
+                            <div class="skeleton-card home-poster-card"><div class="skeleton-artwork thumb-wrapper"></div></div>
+                            <div class="skeleton-card home-poster-card"><div class="skeleton-artwork thumb-wrapper"></div></div>
+                            <div class="skeleton-card home-poster-card"><div class="skeleton-artwork thumb-wrapper"></div></div>
+                        </div>
+                    </div>
+                </section>
+                <section class="home-shelf">
+                    <div class="skeleton-line skeleton-heading skeleton-heading--short"></div>
+                    <div class="home-media-rail">
+                        <div class="home-media-row">
+                            <div class="skeleton-card home-poster-card"><div class="skeleton-artwork thumb-wrapper"></div></div>
+                            <div class="skeleton-card home-poster-card"><div class="skeleton-artwork thumb-wrapper"></div></div>
+                            <div class="skeleton-card home-poster-card"><div class="skeleton-artwork thumb-wrapper"></div></div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <div class="loading-skeleton loading-skeleton--library library-poster-grid" aria-hidden="true">
+                <div class="skeleton-card library-poster-card"><div class="skeleton-artwork thumb-wrapper"></div></div>
+                <div class="skeleton-card library-poster-card"><div class="skeleton-artwork thumb-wrapper"></div></div>
+                <div class="skeleton-card library-poster-card"><div class="skeleton-artwork thumb-wrapper"></div></div>
+                <div class="skeleton-card library-poster-card"><div class="skeleton-artwork thumb-wrapper"></div></div>
+                <div class="skeleton-card library-poster-card"><div class="skeleton-artwork thumb-wrapper"></div></div>
+                <div class="skeleton-card library-poster-card"><div class="skeleton-artwork thumb-wrapper"></div></div>
+                <div class="skeleton-card library-poster-card"><div class="skeleton-artwork thumb-wrapper"></div></div>
+                <div class="skeleton-card library-poster-card"><div class="skeleton-artwork thumb-wrapper"></div></div>
+                <div class="skeleton-card library-poster-card"><div class="skeleton-artwork thumb-wrapper"></div></div>
+            </div>
+
+            <div class="loading-skeleton loading-skeleton--search search-results" aria-hidden="true">
+                <div class="library-poster-grid">
+                    <div class="skeleton-card library-poster-card"><div class="skeleton-artwork thumb-wrapper"></div></div>
+                    <div class="skeleton-card library-poster-card"><div class="skeleton-artwork thumb-wrapper"></div></div>
+                    <div class="skeleton-card library-poster-card"><div class="skeleton-artwork thumb-wrapper"></div></div>
+                </div>
+                <div class="media-list">
+                    <div class="skeleton-card"><div class="skeleton-artwork thumb-wrapper"></div><div class="list-body"><div class="skeleton-line skeleton-line--title"></div><div class="skeleton-line"></div></div></div>
+                    <div class="skeleton-card"><div class="skeleton-artwork thumb-wrapper"></div><div class="list-body"><div class="skeleton-line skeleton-line--title"></div><div class="skeleton-line"></div></div></div>
+                </div>
+            </div>
+
+            <div class="loading-skeleton loading-skeleton--details media-details" aria-hidden="true">
+                <div class="skeleton-artwork media-detail-artwork"></div>
+                <div class="media-detail-info">
+                    <div class="skeleton-line skeleton-line--metadata"></div>
+                    <div class="skeleton-line skeleton-line--tagline"></div>
+                    <div class="skeleton-line skeleton-line--overview"></div>
+                    <div class="skeleton-line skeleton-line--overview skeleton-line--overview-short"></div>
+                </div>
+            </div>
         </div>
 
         <div id="error-state" class="feedback-state hidden">

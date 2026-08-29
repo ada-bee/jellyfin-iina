@@ -4,6 +4,8 @@ import { state } from "../store";
 import { disconnectLibraryGridObserver, replaceContent } from "./content";
 import { buildFeedbackState, getEmptyStateDetail } from "./feedback";
 
+export type LoadingLayout = "home" | "library" | "search" | "details";
+
 export function showLoginView(): void {
     clearBackdropContext();
     ui.loginView.classList.remove("hidden");
@@ -15,8 +17,9 @@ export function showBrowseView(): void {
     ui.browseView.classList.remove("hidden");
 }
 
-export function showLoading(): void {
+export function showLoading(layout: LoadingLayout): void {
     disconnectLibraryGridObserver();
+    ui.loading.dataset.layout = layout;
     ui.loading.classList.remove("hidden");
     ui.content.classList.add("hidden");
     ui.errorState.classList.add("hidden");

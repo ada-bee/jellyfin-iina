@@ -1574,8 +1574,9 @@
     ui.loginView.classList.add("hidden");
     ui.browseView.classList.remove("hidden");
   }
-  function showLoading() {
+  function showLoading(layout) {
     disconnectLibraryGridObserver();
+    ui.loading.dataset.layout = layout;
     ui.loading.classList.remove("hidden");
     ui.content.classList.add("hidden");
     ui.errorState.classList.add("hidden");
@@ -2629,7 +2630,7 @@
     };
     setCurrentLibraryContext(library, options);
     updateTitle(options.libraryName);
-    showLoading();
+    showLoading("library");
     try {
       const page = await sidebarRequests.library.loadPage({
         userId: state.userId,
@@ -2730,7 +2731,7 @@
       renderMovieDetails(cachedMovie);
       return;
     }
-    showLoading();
+    showLoading("details");
     try {
       const movie = await sidebarRequests.details.loadItem(options.movieId);
       if (!viewRequests.isCurrent(requestId)) {
@@ -2769,7 +2770,7 @@
       }
       return;
     }
-    showLoading();
+    showLoading("details");
     try {
       const { details, nextUpItem, seasons } = await sidebarRequests.details.loadSeries(state.userId, options.seriesId);
       if (!viewRequests.isCurrent(requestId)) {
@@ -2881,7 +2882,7 @@
       renderHomeSections(cachedHome.continueWatchingItems, cachedHome.newestEpisodes, cachedHome.recentMovies, cachedHome.recentSeries);
       return;
     }
-    showLoading();
+    showLoading("home");
     try {
       const home = await sidebarRequests.home.load(state.userId, HOME_SECTION_ITEM_LIMIT);
       if (!viewRequests.isCurrent(requestId)) {
@@ -2949,7 +2950,7 @@
     const requestId = beginViewRequest();
     sidebarStore.setRetryOperation({ kind: "search", query });
     updateTitle("Search Results");
-    showLoading();
+    showLoading("search");
     window.scrollTo(0, 0);
     try {
       const items = await sidebarRequests.search.search(state.userId, query);
