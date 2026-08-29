@@ -1,12 +1,12 @@
 import type { JellyfinDeviceProfile } from "./jellyfin";
 
 export const IINA_DEVICE_PROFILE = {
-    MaxStreamingBitrate: 120000000,
-    MaxStaticBitrate: 100000000,
-    MusicStreamingTranscodingBitrate: 384000,
+    MaxStreamingBitrate: 2147483647,
+    MaxStaticBitrate: 2147483647,
+    MusicStreamingTranscodingBitrate: 2147483647,
     DirectPlayProfiles: [
-        { Container: "mp4,m4v,mkv,webm,avi,mov", Type: "Video" },
-        { Container: "mp3,flac,aac,m4a,ogg,opus,wav", Type: "Audio" }
+        { Container: "", Type: "Video" },
+        { Container: "", Type: "Audio" }
     ],
     TranscodingProfiles: [],
     ContainerProfiles: [],

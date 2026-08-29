@@ -56,6 +56,18 @@ describe("Jellyfin playback negotiation", () => {
         });
     });
 
+    test("advertises IINA as an uncapped external player", () => {
+        expect(IINA_DEVICE_PROFILE).toMatchObject({
+            MaxStreamingBitrate: 2147483647,
+            MaxStaticBitrate: 2147483647,
+            MusicStreamingTranscodingBitrate: 2147483647,
+            DirectPlayProfiles: [
+                { Container: "", Type: "Video" },
+                { Container: "", Type: "Audio" }
+            ]
+        });
+    });
+
     test("keeps Jellyfin's source order when the preferred source requires remuxing", () => {
         const response: JellyfinPlaybackInfoResponse = {
             PlaySessionId: "session-id",
