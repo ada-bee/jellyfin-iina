@@ -1,7 +1,4 @@
-import {
-    setupBackdropInteractionListeners,
-    setupNavigationScrollState
-} from "../sidebar/controllers/events";
+import { setupBackdropInteractionListeners } from "../sidebar/controllers/events";
 import { ui } from "../sidebar/dom";
 import {
     findListCard,
@@ -37,7 +34,6 @@ import {
 import { createPreviewUrl, getRequestedPreview, type PreviewName } from "./routing";
 
 export function setupFixturePreview(): void {
-    setupNavigationScrollState();
     setupBackdropInteractionListeners();
     setupSeasonMenu(seasonId => {
         const seasonNumber = seasons.find(item => item.Id === seasonId)?.IndexNumber || 1;

@@ -3562,11 +3562,8 @@
   }
 
   // src/sidebar/controllers/events.ts
-  var scrollStateObserver = null;
   var backdropInteractionListenersInstalled = false;
-  var NAVIGATION_ELEVATION_DISTANCE = 24;
   function setupEventListeners() {
-    setupNavigationScrollState();
     setupBackdropInteractionListeners();
     setupSeasonMenu((seasonId) => void selectSeriesSeason(seasonId));
     ui.loginForm.addEventListener("submit", handleLogin);
@@ -3626,25 +3623,6 @@
     if (card && card !== nextCard) {
       setFocusedBackdropCard(nextCard);
     }
-  }
-  function setupNavigationScrollState() {
-    if (scrollStateObserver) {
-      return;
-    }
-    const updateScrollState = () => {
-      const navigationElevation = Math.min(Math.max(window.scrollY, 0) / NAVIGATION_ELEVATION_DISTANCE, 1);
-      ui.navigationLayer.style.setProperty("--navigation-elevation", navigationElevation.toFixed(3));
-      const pageOverflows = document.documentElement.scrollHeight > window.innerHeight + 1;
-      const contentOverflows = ui.content.scrollHeight > ui.content.clientHeight + 1;
-      const hasVerticalOverflow = pageOverflows || contentOverflows;
-      ui.bottomSearchLayer.classList.toggle("bottom-search-layer--elevated", hasVerticalOverflow);
-    };
-    window.addEventListener("scroll", updateScrollState, { passive: true });
-    window.addEventListener("resize", updateScrollState, { passive: true });
-    scrollStateObserver = new ResizeObserver(updateScrollState);
-    scrollStateObserver.observe(document.body);
-    scrollStateObserver.observe(ui.content);
-    updateScrollState();
   }
   function handleContentClick(event) {
     const target = event.target;
