@@ -4,7 +4,7 @@ import type { JellyfinBaseItem } from "../jellyfin/types";
 import {
     buildMediaCardViewModel,
     buildMediaDetailsViewModel,
-    buildSeriesPlaybackTargetViewModel,
+    buildSeriesNextUpViewModel,
     buildSearchResultsViewModel,
     getPlayActionLabel
 } from "./viewModels";
@@ -422,9 +422,10 @@ describe("sidebar view models", () => {
             RunTimeTicks: 47 * TICKS_PER_MINUTE,
             UserData: { PlaybackPositionTicks: 10 }
         };
-        expect(buildSeriesPlaybackTargetViewModel(episode)).toEqual({
+        expect(buildSeriesNextUpViewModel(episode)).toEqual({
+            episodeNumber: "S01E08",
             title: "Return Signal",
-            metadata: "S01 E08 · 47m"
+            duration: "47min"
         });
         expect(getPlayActionLabel({ UserData: { Played: true, PlaybackPositionTicks: 10 } }))
             .toBe("Play");

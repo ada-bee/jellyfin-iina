@@ -1,7 +1,7 @@
 import type { JellyfinBaseItem } from "../../jellyfin/types";
 import {
     buildMediaDetailsViewModel,
-    buildSeriesPlaybackTargetViewModel,
+    buildSeriesNextUpViewModel,
     getProgressPercent,
     getPlayActionLabel,
     type EpisodeLoadState,
@@ -65,10 +65,13 @@ export function renderSeriesDetails(
         false
     );
     details.classList.add("series-details");
+    if (playbackItem) {
+        details.querySelector(".media-detail-info")?.appendChild(buildSeriesNextUp(playbackItem));
+    }
     details.appendChild(buildSeriesSeasonsSection(seasons, expandedSeasonId, episodes, episodeLoadState));
     replaceContent(details);
     if (playbackItem) {
-        renderPlayableDetailActions(playbackItem, true);
+        renderPlayableDetailActions(playbackItem);
     }
     setBackdropDetail(item);
 }
@@ -111,7 +114,7 @@ function buildMediaDetails(
     return details;
 }
 
-function renderPlayableDetailActions(item: JellyfinBaseItem, showSeriesTarget: boolean = false): void {
+function renderPlayableDetailActions(item: JellyfinBaseItem): void {
     const play = document.createElement("button");
     play.className = "media-detail-action media-detail-action--primary";
     play.type = "button";
@@ -120,11 +123,7 @@ function renderPlayableDetailActions(item: JellyfinBaseItem, showSeriesTarget: b
     const targetLabel = String(item.Name || "video");
     play.setAttribute("aria-label", `${playLabel} ${targetLabel}`);
     play.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M4.5 2.8c0-.6.7-.9 1.2-.6l6 4c.4.3.4.9 0 1.2l-6 4c-.5.3-1.2 0-1.2-.6v-8Z" fill="currentColor"/></svg>';
-    if (showSeriesTarget) {
-        play.classList.add("media-detail-action--icon");
-    } else {
-        play.appendChild(buildDetailActionLabel(playLabel));
-    }
+    play.appendChild(buildDetailActionLabel(playLabel));
 
     const queue = document.createElement("button");
     queue.className = "media-detail-action media-detail-action--secondary";
@@ -132,15 +131,9 @@ function renderPlayableDetailActions(item: JellyfinBaseItem, showSeriesTarget: b
     applyDetailQueueContext(queue, item);
     queue.setAttribute("aria-label", `Queue ${targetLabel}`);
     queue.innerHTML = '<svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true"><path d="M2.2 4h7.2M2.2 7.5h7.2M2.2 11h4.6M11.7 8.8v4.4M9.5 11h4.4" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/></svg>';
-    if (showSeriesTarget) {
-        queue.classList.add("media-detail-action--icon");
-    } else {
-        queue.appendChild(buildDetailActionLabel("Queue"));
-    }
+    queue.appendChild(buildDetailActionLabel("Queue"));
 
-    const content = showSeriesTarget ? [buildSeriesPlaybackTarget(item), play, queue] : [play, queue];
-    ui.bottomDetailActions.replaceChildren(...content);
-    ui.bottomDetailActions.classList.toggle("media-detail-actions--series", showSeriesTarget);
+    ui.bottomDetailActions.replaceChildren(play, queue);
     ui.bottomDetailActions.classList.remove("hidden");
 }
 
@@ -150,19 +143,31 @@ function buildDetailActionLabel(label: string): HTMLElement {
     return element;
 }
 
-function buildSeriesPlaybackTarget(item: JellyfinBaseItem): HTMLButtonElement {
-    const viewModel = buildSeriesPlaybackTargetViewModel(item);
+function buildSeriesNextUp(item: JellyfinBaseItem): HTMLElement {
+    const viewModel = buildSeriesNextUpViewModel(item);
+    const nextUp = document.createElement("div");
+    nextUp.className = "series-next-up";
+
+    const label = document.createElement("p");
+    label.className = "series-next-up-label";
+    label.textContent = "Next up:";
+
     const target = document.createElement("button");
-    target.className = "series-playback-target";
+    target.className = "series-next-up-target";
     target.type = "button";
-    target.dataset.seriesPlaybackTarget = item.Id || "";
+    target.dataset.seriesNextUp = item.Id || "";
     target.dataset.name = viewModel.title;
-    target.setAttribute("aria-label", `View episode details: ${viewModel.title}, ${viewModel.metadata}`);
+    target.setAttribute("aria-label", [
+        "View episode details:",
+        viewModel.episodeNumber,
+        viewModel.title,
+        viewModel.duration
+    ].filter(Boolean).join(" "));
 
     const artwork = document.createElement("div");
-    artwork.className = "series-playback-target-artwork";
+    artwork.className = "series-next-up-artwork";
     const image = document.createElement("img");
-    image.className = "series-playback-target-image list-thumb";
+    image.className = "series-next-up-image list-thumb";
     image.src = getImageUrl(item.Id || "", "Primary", 240);
     image.dataset.fallback = getImageUrl(item.SeriesId || "", "Thumb", 240);
     image.dataset.itemId = item.SeriesId || "";
@@ -170,17 +175,18 @@ function buildSeriesPlaybackTarget(item: JellyfinBaseItem): HTMLButtonElement {
     image.alt = "";
     artwork.appendChild(image);
 
-    const copy = document.createElement("div");
-    copy.className = "series-playback-target-copy";
+    const copy = document.createElement("span");
+    copy.className = "series-next-up-copy";
     const title = document.createElement("span");
-    title.className = "series-playback-target-title";
+    title.className = "series-next-up-title";
     title.textContent = viewModel.title;
     const metadata = document.createElement("span");
-    metadata.className = "series-playback-target-metadata";
-    metadata.textContent = viewModel.metadata;
+    metadata.className = "series-next-up-metadata";
+    metadata.textContent = [viewModel.episodeNumber, viewModel.duration].filter(Boolean).join(" · ");
     copy.append(title, metadata);
     target.append(artwork, copy);
-    return target;
+    nextUp.append(label, target);
+    return nextUp;
 }
 
 function buildMediaFileInfo(sources: MediaFileMetadataSource[]): HTMLElement {

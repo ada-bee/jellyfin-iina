@@ -61,9 +61,10 @@ export interface MediaDetailsViewModel {
     mediaFileSources: MediaFileMetadataSource[];
 }
 
-export interface SeriesPlaybackTargetViewModel {
+export interface SeriesNextUpViewModel {
+    episodeNumber: string;
     title: string;
-    metadata: string;
+    duration: string;
 }
 
 export interface MediaFileMetadataSource {
@@ -200,14 +201,19 @@ export function buildCardContext(item: JellyfinBaseItem, directPlay: boolean = f
     };
 }
 
-export function buildSeriesPlaybackTargetViewModel(
+export function buildSeriesNextUpViewModel(
     item: JellyfinBaseItem
-): SeriesPlaybackTargetViewModel {
-    const episodeNumber = formatPaddedEpisodeNumber(item.ParentIndexNumber, item.IndexNumber);
-    const runtime = formatRuntime(item.RunTimeTicks);
+): SeriesNextUpViewModel {
+    const durationMinutes = item.RunTimeTicks
+        ? Math.floor(item.RunTimeTicks / TICKS_PER_MINUTE)
+        : 0;
     return {
+        episodeNumber: formatPaddedEpisodeNumber(
+            item.ParentIndexNumber,
+            item.IndexNumber
+        ).replace(" E", "E"),
         title: String(item.Name || "Episode"),
-        metadata: [episodeNumber, runtime].filter(Boolean).join(" · ")
+        duration: durationMinutes ? `${durationMinutes}min` : ""
     };
 }
 

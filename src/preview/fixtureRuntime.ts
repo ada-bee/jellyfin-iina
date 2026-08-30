@@ -56,7 +56,6 @@ export function setupFixturePreview(): void {
             setSearchFilter(filter);
         }
     });
-    ui.bottomDetailActions.addEventListener("click", handleContentClick);
     ui.content.addEventListener("click", handleContentClick);
     window.addEventListener("popstate", () => renderPreview(getRequestedPreview(window.location.search)));
 
@@ -70,7 +69,7 @@ export function setupFixturePreview(): void {
 
 function handleContentClick(event: MouseEvent): void {
     const target = event.target as HTMLElement | null;
-    if (target?.closest("[data-series-playback-target]")) {
+    if (target?.closest("[data-series-next-up]")) {
         navigateToPreview("episode");
         return;
     }

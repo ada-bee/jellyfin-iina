@@ -863,71 +863,6 @@ button {
     transition: background-color 140ms ease, transform 140ms ease;
 }
 
-.media-detail-actions--series {
-    height: 36px;
-    grid-template-columns: minmax(0, 1fr) 36px 36px;
-}
-
-.series-playback-target {
-    display: grid;
-    height: 36px;
-    min-width: 0;
-    grid-template-columns: 64px minmax(0, 1fr);
-    align-items: center;
-    gap: 8px;
-    border: 0;
-    outline: 0;
-    background: transparent;
-    text-align: left;
-    cursor: pointer;
-}
-
-.series-playback-target:focus-visible .series-playback-target-title {
-    text-decoration: underline;
-    text-underline-offset: 2px;
-}
-
-.series-playback-target-artwork {
-    width: 64px;
-    aspect-ratio: 16 / 9;
-    overflow: hidden;
-    border-radius: 7px;
-    background: #1c1c1e;
-    box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .1);
-}
-
-.series-playback-target-copy {
-    display: flex;
-    min-width: 0;
-    flex-direction: column;
-    gap: 2px;
-}
-
-.series-playback-target-title,
-.series-playback-target-metadata {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.series-playback-target-title {
-    color: var(--text);
-    font-size: 14px;
-    font-weight: 620;
-    line-height: 16px;
-}
-
-.series-playback-target-metadata {
-    color: var(--secondary);
-    font-size: 12px;
-    line-height: 14px;
-}
-
-.media-detail-action--icon {
-    width: 36px;
-    padding: 0;
-}
-
 .media-detail-action--primary {
     border-color: rgba(255, 255, 255, .72);
     background: rgba(255, 255, 255, .92);
@@ -991,6 +926,80 @@ button {
     color: rgba(235, 235, 245, .72);
     font-size: 14.5px;
     line-height: 1.52;
+}
+
+.series-next-up {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 14px;
+}
+
+.series-next-up-label {
+    color: rgba(255, 255, 255, .88);
+    font-size: 13.5px;
+    font-weight: 650;
+    line-height: 1.4;
+}
+
+.series-next-up-target {
+    display: grid;
+    width: 100%;
+    height: 36px;
+    min-width: 0;
+    grid-template-columns: 64px minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.series-next-up-target:focus-visible .series-next-up-title {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.series-next-up-artwork {
+    width: 64px;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    border-radius: 7px;
+    background: #1c1c1e;
+    box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .1);
+}
+
+.series-next-up-copy {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.series-next-up-title,
+.series-next-up-metadata {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.series-next-up-title {
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 620;
+    line-height: 16px;
+}
+
+.series-next-up-metadata {
+    color: var(--secondary);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    line-height: 14px;
 }
 
 .media-file-info {
@@ -1080,8 +1089,8 @@ button.media-file-track[aria-pressed="true"]::after {
 }
 
 .series-seasons {
-    margin-top: 28px;
-    padding-top: 20px;
+    margin-top: 22px;
+    padding-top: 16px;
     border-top: .5px solid var(--separator);
 }
 
@@ -1149,7 +1158,7 @@ button.media-file-track[aria-pressed="true"]::after {
 }
 
 .series-season-panel {
-    padding: 3px 0 18px;
+    padding: 3px 0 16px;
 }
 
 .series-season-panel[hidden] {

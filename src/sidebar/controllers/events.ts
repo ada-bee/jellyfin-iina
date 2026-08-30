@@ -100,7 +100,7 @@ function handleContentClick(event: MouseEvent): void {
     if (handleDetailPlayClick(target)) {
         return;
     }
-    if (handleSeriesPlaybackTargetClick(target)) {
+    if (handleSeriesNextUpClick(target)) {
         return;
     }
     if (handleSeriesSeasonToggle(target)) {
@@ -124,12 +124,12 @@ function handleContentClick(event: MouseEvent): void {
     handleListCardSelection(card);
 }
 
-function handleSeriesPlaybackTargetClick(target: HTMLElement | null): boolean {
-    const button = target?.closest<HTMLButtonElement>("[data-series-playback-target]");
+function handleSeriesNextUpClick(target: HTMLElement | null): boolean {
+    const button = target?.closest<HTMLButtonElement>("[data-series-next-up]");
     if (!button) {
         return false;
     }
-    const episodeId = button.dataset.seriesPlaybackTarget || "";
+    const episodeId = button.dataset.seriesNextUp || "";
     if (episodeId) {
         void loadEpisode(episodeId, button.dataset.name || "Episode");
     }
