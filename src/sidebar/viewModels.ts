@@ -224,10 +224,13 @@ function getMediaDetailMetadata(item: JellyfinBaseItem, seasonCount: number): st
 
 function getMediaFileSources(item: JellyfinBaseItem): MediaFileMetadataSource[] {
     const sources = item.MediaSources || [];
-    return sources.map((source, index) => ({
-        mediaSourceId: source.Id || "",
-        groups: getMediaFileGroups(source, index === 0, sources.length > 1)
-    }));
+    return sources
+        .map((source, index) => ({ source, selected: index === 0 }))
+        .sort((left, right) => compareMediaSources(left.source, right.source))
+        .map(({ source, selected }) => ({
+            mediaSourceId: source.Id || "",
+            groups: getMediaFileGroups(source, selected, sources.length > 1)
+        }));
 }
 
 function getMediaFileGroups(
@@ -236,8 +239,12 @@ function getMediaFileGroups(
     hasVersions: boolean
 ): MediaFileMetadataGroup[] {
     const streams = source.MediaStreams || [];
-    const audioStreams = streams.filter(stream => stream.Type === "Audio");
-    const subtitleStreams = streams.filter(stream => stream.Type === "Subtitle");
+    const audioStreams = streams
+        .filter(stream => stream.Type === "Audio")
+        .sort(compareMediaStreams);
+    const subtitleStreams = streams
+        .filter(stream => stream.Type === "Subtitle")
+        .sort(compareMediaStreams);
     const audioStreamIndex = getInitialAudioStreamIndex(audioStreams, source.DefaultAudioStreamIndex);
     const subtitleStreamIndex = getInitialSubtitleStreamIndex(
         subtitleStreams,
@@ -346,55 +353,94 @@ function getInitialSubtitleStreamIndex(
     return defaultIndex ?? streams.find(stream => stream.IsDefault)?.Index ?? null;
 }
 
-function getResolutionLabel(width?: number | null, height?: number | null): string {
-    if (!width || !height) {
-        return "";
-    }
-    return getResolutionClass(width, height);
+function compareMediaSources(
+    left: JellyfinMediaSourceInfo,
+    right: JellyfinMediaSourceInfo
+): number {
+    const resolutionDifference = getMediaSourceResolution(left) - getMediaSourceResolution(right);
+    return resolutionDifference || getMediaSourceBitrate(left) - getMediaSourceBitrate(right);
 }
 
-function getResolutionClass(width: number, height: number): string {
-    if (width >= 7000 || height >= 4000) {
-        return "8K";
+function getMediaSourceResolution(source: JellyfinMediaSourceInfo): number {
+    const stream = source.MediaStreams?.find(candidate => candidate.Type === "Video");
+    return getResolutionClass(stream?.Width, stream?.Height) ?? Number.MAX_SAFE_INTEGER;
+}
+
+function getMediaSourceBitrate(source: JellyfinMediaSourceInfo): number {
+    const stream = source.MediaStreams?.find(candidate => candidate.Type === "Video");
+    return stream?.BitRate || source.Bitrate || Number.MAX_SAFE_INTEGER;
+}
+
+function compareMediaStreams(left: JellyfinMediaStream, right: JellyfinMediaStream): number {
+    return (left.Index ?? Number.MAX_SAFE_INTEGER) - (right.Index ?? Number.MAX_SAFE_INTEGER);
+}
+
+function getResolutionLabel(width?: number | null, height?: number | null): string {
+    const resolutionClass = getResolutionClass(width, height);
+    return resolutionClass ? `${resolutionClass}p` : "";
+}
+
+function getResolutionClass(width?: number | null, height?: number | null): number | null {
+    if (!width && !height) {
+        return null;
     }
-    if (width >= 3800 || height >= 2100) {
-        return "4K";
-    }
-    if (height >= 1400 || (width >= 2500 && height >= 1300)) {
-        return "1440p";
-    }
-    if (width >= 1900 || height >= 1000) {
-        return "1080p";
-    }
-    if (width >= 1200 || height >= 700) {
-        return "720p";
-    }
-    return `${height}p`;
+    const resolution = RESOLUTION_CLASSES.find(candidate => (
+        (width || 0) >= candidate.minimumWidth || (height || 0) >= candidate.minimumHeight
+    ));
+    return resolution?.label || 144;
 }
 
 function getCodecLabel(codec?: string | null): string {
     const normalized = codec?.trim().toLowerCase() || "";
     const labels: Record<string, string> = {
         aac: "AAC",
-        ac3: "AC-3",
+        ac3: "Dolby Digital",
+        "ac-3": "Dolby Digital",
+        av1: "AV1",
+        av01: "AV1",
+        avc: "AVC",
+        avc1: "AVC",
         ass: "ASS",
+        dca: "DTS",
         dts: "DTS",
-        eac3: "E-AC-3",
+        eac3: "Dolby Digital Plus",
+        "e-ac-3": "Dolby Digital Plus",
         flac: "FLAC",
-        h264: "H.264",
+        h264: "AVC",
         h265: "HEVC",
         hdmv_pgs_subtitle: "PGS",
         hevc: "HEVC",
+        hev1: "HEVC",
+        hvc1: "HEVC",
+        mpeg2: "MPEG-2",
+        mpeg2video: "MPEG-2",
+        mpeg4: "MPEG-4",
+        mpeg4video: "MPEG-4",
         mp3: "MP3",
         opus: "Opus",
         pgs: "PGS",
         srt: "SRT",
         subrip: "SRT",
-        truehd: "TrueHD",
+        truehd: "Dolby TrueHD",
+        vc1: "VC-1",
+        vp8: "VP8",
+        vp9: "VP9",
         webvtt: "WebVTT"
     };
     return labels[normalized] || normalized.toUpperCase();
 }
+
+const RESOLUTION_CLASSES = [
+    { label: 4320, minimumWidth: 7000, minimumHeight: 4000 },
+    { label: 2160, minimumWidth: 3800, minimumHeight: 2000 },
+    { label: 1440, minimumWidth: 2500, minimumHeight: 1300 },
+    { label: 1080, minimumWidth: 1900, minimumHeight: 1000 },
+    { label: 720, minimumWidth: 1200, minimumHeight: 700 },
+    { label: 576, minimumWidth: 1000, minimumHeight: 540 },
+    { label: 480, minimumWidth: 700, minimumHeight: 450 },
+    { label: 360, minimumWidth: 600, minimumHeight: 340 },
+    { label: 240, minimumWidth: 400, minimumHeight: 220 }
+] as const;
 
 function getBitrateLabel(bitrate?: number | null): string {
     if (!bitrate || bitrate <= 0) {

@@ -165,7 +165,7 @@ describe("sidebar view models", () => {
                 DefaultSubtitleStreamIndex: 2,
                 MediaStreams: [
                     { Type: "Video", Width: 1920, Height: 800, Codec: "h264", BitRate: 8_000_000 },
-                    { Type: "Audio", Index: 1, Language: "eng", Codec: "dts", Channels: 6 },
+                    { Type: "Audio", Index: 1, Language: "eng", Codec: "eac3", Channels: 6 },
                     {
                         Type: "Subtitle",
                         Index: 2,
@@ -186,7 +186,7 @@ describe("sidebar view models", () => {
                     label: "Video",
                     tracks: [{
                         title: "1080p",
-                        technical: "H.264 · 8 Mbps",
+                        technical: "AVC · 8 Mbps",
                         mediaSourceId: "source-1080",
                         streamIndex: null,
                         selected: true,
@@ -198,7 +198,7 @@ describe("sidebar view models", () => {
                     label: "Audio",
                     tracks: [{
                         title: "English",
-                        technical: "DTS 5.1",
+                        technical: "Dolby Digital Plus 5.1",
                         mediaSourceId: null,
                         streamIndex: 1,
                         selected: true,
@@ -245,6 +245,26 @@ describe("sidebar view models", () => {
         ] }])?.map(track => track.selectable)).toEqual([true, true]);
     });
 
+    test("sorts audio and subtitle tracks by stream index", () => {
+        const groups = buildMediaDetailsViewModel({
+            Type: "Movie",
+            MediaSources: [{
+                MediaStreams: [
+                    { Type: "Audio", Index: 4, Language: "spa" },
+                    { Type: "Subtitle", Index: 8, Language: "eng" },
+                    { Type: "Audio", Language: "fra" },
+                    { Type: "Subtitle", Index: 3, Language: "spa" },
+                    { Type: "Audio", Index: 2, Language: "eng" }
+                ]
+            }]
+        }).mediaFileSources[0]?.groups;
+
+        expect(groups?.find(group => group.kind === "audio")?.tracks
+            .map(track => track.streamIndex)).toEqual([2, 4, null]);
+        expect(groups?.find(group => group.kind === "subtitle")?.tracks
+            .map(track => track.streamIndex)).toEqual([3, 8]);
+    });
+
     test("models every video version with its own available tracks", () => {
         const sources = buildMediaDetailsViewModel({
             Type: "Movie",
@@ -253,7 +273,13 @@ describe("sidebar view models", () => {
                     Id: "source-4k",
                     DefaultAudioStreamIndex: 2,
                     MediaStreams: [
-                        { Type: "Video", Width: 3840, Height: 1600, Codec: "hevc" },
+                        {
+                            Type: "Video",
+                            Width: 3840,
+                            Height: 1600,
+                            Codec: "hevc",
+                            BitRate: 18_000_000
+                        },
                         { Type: "Audio", Index: 2, Language: "eng" }
                     ]
                 },
@@ -261,21 +287,75 @@ describe("sidebar view models", () => {
                     Id: "source-1080",
                     DefaultAudioStreamIndex: 5,
                     MediaStreams: [
-                        { Type: "Video", Width: 1920, Height: 800, Codec: "h264" },
+                        {
+                            Type: "Video",
+                            Width: 1920,
+                            Height: 800,
+                            Codec: "h264",
+                            BitRate: 8_000_000
+                        },
                         { Type: "Audio", Index: 5, Language: "spa" },
                         { Type: "Audio", Index: 6, Language: "fra" }
                     ]
+                },
+                {
+                    Id: "source-1080-efficient",
+                    MediaStreams: [{
+                        Type: "Video",
+                        Width: 1920,
+                        Height: 800,
+                        Codec: "av1",
+                        BitRate: 5_000_000
+                    }]
+                },
+                {
+                    Id: "source-720",
+                    MediaStreams: [{
+                        Type: "Video",
+                        Width: 1280,
+                        Height: 534,
+                        Codec: "mpeg2video",
+                        BitRate: 4_000_000
+                    }]
                 }
             ]
         }).mediaFileSources;
 
         expect(sources.map(source => source.groups[0]?.tracks[0])).toMatchObject([
-            { title: "4K", mediaSourceId: "source-4k", selected: true, selectable: true },
-            { title: "1080p", mediaSourceId: "source-1080", selected: false, selectable: true }
+            {
+                title: "720p",
+                technical: "MPEG-2 · 4 Mbps",
+                mediaSourceId: "source-720",
+                selected: false,
+                selectable: true
+            },
+            {
+                title: "1080p",
+                technical: "AV1 · 5 Mbps",
+                mediaSourceId: "source-1080-efficient",
+                selected: false,
+                selectable: true
+            },
+            {
+                title: "1080p",
+                technical: "AVC · 8 Mbps",
+                mediaSourceId: "source-1080",
+                selected: false,
+                selectable: true
+            },
+            {
+                title: "2160p",
+                technical: "HEVC · 18 Mbps",
+                mediaSourceId: "source-4k",
+                selected: true,
+                selectable: true
+            }
         ]);
-        expect(sources[0]?.groups.find(group => group.kind === "audio")?.tracks)
+        expect(sources.find(source => source.mediaSourceId === "source-4k")
+            ?.groups.find(group => group.kind === "audio")?.tracks)
             .toMatchObject([{ title: "English", selected: true, selectable: false }]);
-        expect(sources[1]?.groups.find(group => group.kind === "audio")?.tracks)
+        expect(sources.find(source => source.mediaSourceId === "source-1080")
+            ?.groups.find(group => group.kind === "audio")?.tracks)
             .toMatchObject([
                 { title: "Spanish", selected: true, selectable: true },
                 { title: "French", selected: false, selectable: true }

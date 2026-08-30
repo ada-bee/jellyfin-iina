@@ -130,7 +130,10 @@ function buildMediaFileInfo(sources: MediaFileMetadataSource[]): HTMLElement {
     const list = document.createElement("dl");
     list.className = "media-file-metadata";
     section.appendChild(list);
-    renderMediaFileSource(section, list, sources, sources[0], false);
+    const selectedSource = sources.find(source => source.groups.some(group => (
+        group.kind === "video" && group.tracks.some(track => track.selected)
+    ))) || sources[0];
+    renderMediaFileSource(section, list, sources, selectedSource, false);
     return section;
 }
 
