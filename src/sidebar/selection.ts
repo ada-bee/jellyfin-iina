@@ -1,16 +1,16 @@
 import type { CardContext } from "./viewModels";
 
-export type CardSelectionAction = "open-series" | "open-movie" | "open-episode" | "play";
+export type CardSelectionAction = "open-series" | "open-movie" | "open-episode";
 
-export function resolveCardSelection(context: CardContext): CardSelectionAction {
+export function resolveCardSelection(context: CardContext): CardSelectionAction | null {
     if (context.type === "Series") {
         return "open-series";
     }
-    if (context.type === "Movie" && !context.directPlay) {
+    if (context.type === "Movie") {
         return "open-movie";
     }
-    if (context.type === "Episode" && !context.directPlay) {
+    if (context.type === "Episode") {
         return "open-episode";
     }
-    return "play";
+    return null;
 }

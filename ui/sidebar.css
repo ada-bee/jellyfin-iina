@@ -15,6 +15,7 @@
     --page-padding: 16px;
     --home-poster-height: 196px;
     --home-thumbnail-height: 166px;
+    --play-button-size: 48px;
 }
 
 * {
@@ -560,11 +561,6 @@ button {
     font-size: 10.5px;
 }
 
-.home-thumbnail-card .play-button {
-    width: 38px;
-    height: 38px;
-}
-
 .home-shelf-empty {
     min-height: 0;
     padding: 10px;
@@ -673,10 +669,6 @@ button {
     box-shadow: 0 1px 0 rgba(255, 255, 255, .12), 0 10px 28px rgba(0, 0, 0, .28);
 }
 
-.list-card:focus-visible .thumb-wrapper {
-    box-shadow: 0 0 0 3px rgba(255, 255, 255, .82), 0 10px 28px rgba(0, 0, 0, .32);
-}
-
 .list-thumb {
     display: block;
     width: 100%;
@@ -684,32 +676,72 @@ button {
     object-fit: cover;
 }
 
-.play-overlay {
+.card-details-button {
     position: absolute;
+    z-index: 3;
     inset: 0;
-    display: grid;
-    place-items: center;
-    background: rgba(0, 0, 0, .12);
-    opacity: 0;
-    transition: opacity 160ms ease;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    border-radius: var(--artwork-radius);
+    outline: 0;
+    background: transparent;
+    pointer-events: none;
+}
+
+.card-details-button:focus-visible {
+    outline: 3px solid rgba(255, 255, 255, .82);
+    outline-offset: 1px;
 }
 
 .play-button {
+    position: absolute;
+    z-index: 4;
+    top: 50%;
+    left: 50%;
     display: grid;
-    width: 46px;
-    height: 46px;
+    width: var(--play-button-size);
+    height: var(--play-button-size);
     place-items: center;
+    padding: 0;
     border: .5px solid rgba(255, 255, 255, .3);
     border-radius: 50%;
+    outline: 0;
     background: rgba(32, 32, 34, .58);
     box-shadow: 0 5px 18px rgba(0, 0, 0, .3), inset 0 1px 0 rgba(255, 255, 255, .18);
+    color: #fff;
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+    transition: background-color 140ms ease, box-shadow 140ms ease, opacity 140ms ease,
+        transform 140ms ease;
     -webkit-backdrop-filter: blur(15px) saturate(150%);
     backdrop-filter: blur(15px) saturate(150%);
 }
 
-.list-card:hover .play-overlay,
-.list-card:focus-visible .play-overlay {
+.list-card:hover .play-button,
+.list-card:focus-within .play-button,
+.series-next-up-target:hover .play-button,
+.series-next-up-target:focus-within .play-button {
     opacity: 1;
+    pointer-events: auto;
+}
+
+.play-button:hover {
+    background: rgba(46, 46, 48, .76);
+    box-shadow: 0 7px 22px rgba(0, 0, 0, .36), inset 0 1px 0 rgba(255, 255, 255, .22);
+    transform: translate(-50%, -50%) scale(1.06);
+}
+
+.play-button:active {
+    transform: translate(-50%, -50%) scale(.96);
+}
+
+.play-button:focus-visible {
+    outline: 3px solid rgba(255, 255, 255, .88);
+    outline-offset: 2px;
 }
 
 .resume-label {
@@ -945,6 +977,7 @@ button {
 }
 
 .series-next-up-target {
+    position: relative;
     display: grid;
     width: 100%;
     height: 36px;
@@ -952,26 +985,51 @@ button {
     grid-template-columns: 64px minmax(0, 1fr);
     align-items: center;
     gap: 8px;
-    border: 0;
-    outline: 0;
-    background: transparent;
     color: inherit;
     text-align: left;
     cursor: pointer;
 }
 
-.series-next-up-target:focus-visible .series-next-up-title {
+.series-next-up-details {
+    position: absolute;
+    z-index: 3;
+    inset: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
+    outline: 0;
+    background: transparent;
+    pointer-events: none;
+}
+
+.series-next-up-details:focus-visible {
+    outline: 2px solid rgba(255, 255, 255, .82);
+    outline-offset: 2px;
+}
+
+.series-next-up-details:focus-visible ~ .series-next-up-copy .series-next-up-title {
     text-decoration: underline;
     text-underline-offset: 2px;
 }
 
 .series-next-up-artwork {
+    position: relative;
     width: 64px;
     aspect-ratio: 16 / 9;
     overflow: hidden;
     border-radius: 7px;
     background: #1c1c1e;
     box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .1);
+}
+
+.series-next-up-artwork .play-button {
+    width: 30px;
+    height: 30px;
+}
+
+.series-next-up-artwork .play-button svg {
+    width: 16px;
+    height: 16px;
 }
 
 .series-next-up-copy {
@@ -1236,11 +1294,6 @@ button.media-file-track[aria-pressed="true"]::after {
     line-height: 1.3;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 3;
-}
-
-.series-episode-card .play-button {
-    width: 34px;
-    height: 34px;
 }
 
 .series-episode-card .resume-label {

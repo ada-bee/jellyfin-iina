@@ -54,7 +54,6 @@ function buildHomeSections(
             items: continueWatchingItems,
             options: {
                 homeThumbnail: true,
-                directPlay: true,
                 showSeriesName: true,
                 showEpisodeNumber: true,
                 hideRuntime: true,
@@ -67,7 +66,6 @@ function buildHomeSections(
             items: newestEpisodes,
             options: {
                 homeThumbnail: true,
-                directPlay: true,
                 showSeriesName: true,
                 showEpisodeNumber: true,
                 hideRuntime: true,

@@ -1030,9 +1030,8 @@
     const remainingText = remainingLabel ? `, ${remainingLabel}` : "";
     const artworkOnly = Boolean(options.homePoster || options.libraryPoster);
     return {
-      context: buildCardContext(item, Boolean(options.directPlay)),
+      context: buildCardContext(item),
       artworkOnly,
-      showPlayOverlay: !artworkOnly && !opensDetails(item, options),
       played: Boolean(item.UserData?.Played),
       remainingLabel,
       progressPercent: getProgressPercent(item),
@@ -1074,13 +1073,12 @@
   function buildSearchResultSection(items, filter, label, itemType) {
     return { filter, label, items: items.filter((item) => item.Type === itemType) };
   }
-  function buildCardContext(item, directPlay = false) {
+  function buildCardContext(item) {
     return {
       id: item.Id || "",
       name: String(item.Name || "Untitled"),
       type: item.Type || "",
       resume: item.UserData?.PlaybackPositionTicks || 0,
-      directPlay,
       context: {
         seriesId: item.SeriesId || "",
         seasonId: item.SeasonId || item.ParentId || "",
@@ -1107,9 +1105,6 @@
     const position = item.UserData?.PlaybackPositionTicks || 0;
     const percent = runtime ? Math.min(position / runtime * 100, 100) : 0;
     return percent >= 1 ? percent : null;
-  }
-  function opensDetails(item, options) {
-    return !options.directPlay && (item.Type === "Movie" || item.Type === "Series" || item.Type === "Episode");
   }
   function getEpisodeRowNumber(item) {
     if (item.IndexNumber === undefined || item.IndexNumber === null) {
@@ -1503,12 +1498,13 @@
     card.classList.toggle("library-poster-card", Boolean(options.libraryPoster));
     card.classList.toggle("series-episode-card", Boolean(options.episodeRow));
     applyCardContext(card, viewModel.context);
+    card.appendChild(buildCardDetailsButton(viewModel));
     const thumbWrapper = document.createElement("div");
     thumbWrapper.className = "thumb-wrapper";
     thumbWrapper.appendChild(buildCardImage(item, options));
-    if (viewModel.showPlayOverlay) {
-      thumbWrapper.appendChild(buildPlayOverlay());
-    }
+    const playButton = buildPlayButton(`${getPlayActionLabel(item)} ${viewModel.context.name}`);
+    playButton.dataset.cardPlay = "";
+    thumbWrapper.appendChild(playButton);
     if (viewModel.remainingLabel && !viewModel.artworkOnly) {
       const label = document.createElement("div");
       label.className = "resume-label";
@@ -1522,7 +1518,6 @@
     if (viewModel.played) {
       thumbWrapper.appendChild(buildWatchedIndicator());
     }
-    card.setAttribute("aria-label", viewModel.accessibleName);
     card.title = viewModel.accessibleName;
     card.appendChild(thumbWrapper);
     if (!viewModel.artworkOnly) {
@@ -1546,7 +1541,6 @@
       name: card.dataset.name || "",
       type: card.dataset.type || "",
       resume,
-      directPlay: card.dataset.directPlay === "true",
       context: {
         seriesId: card.dataset.seriesId || "",
         seasonId: card.dataset.seasonId || "",
@@ -1587,6 +1581,16 @@
     indicator.setAttribute("title", "Watched");
     indicator.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="m3 7.2 2.5 2.5L11.2 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     return indicator;
+  }
+  function buildPlayButton(accessibleLabel) {
+    const button = document.createElement("button");
+    button.className = "play-button";
+    button.type = "button";
+    button.setAttribute("data-clickable", "");
+    button.setAttribute("aria-label", accessibleLabel);
+    button.title = accessibleLabel;
+    button.innerHTML = '<svg width="23" height="23" viewBox="0 0 23 23" aria-hidden="true"><path d="M7.8 4.9c0-.8.9-1.3 1.6-.8l8.4 5.5c.7.4.7 1.4 0 1.8l-8.4 5.5c-.7.5-1.6 0-1.6-.8V4.9Z" fill="currentColor"/></svg>';
+    return button;
   }
   function getImageUrl(itemId, imageType = "Primary", maxWidth = 680) {
     return buildJellyfinImageUrl({
@@ -1672,6 +1676,15 @@
     }
     return body;
   }
+  function buildCardDetailsButton(viewModel) {
+    const button = document.createElement("button");
+    button.className = "card-details-button";
+    button.type = "button";
+    button.dataset.cardDetails = "";
+    button.setAttribute("data-clickable", "");
+    button.setAttribute("aria-label", `View details: ${viewModel.accessibleName}`);
+    return button;
+  }
   function applyCardContext(card, context) {
     card.dataset.id = context.id;
     card.dataset.name = context.name;
@@ -1680,20 +1693,6 @@
     card.dataset.seriesId = context.context.seriesId;
     card.dataset.seasonId = context.context.seasonId;
     card.dataset.episodeIndex = context.context.episodeIndex === null ? "" : String(context.context.episodeIndex);
-    card.dataset.directPlay = String(context.directPlay);
-    card.setAttribute("data-clickable", "");
-    card.tabIndex = 0;
-    card.setAttribute("role", "button");
-  }
-  function buildPlayOverlay() {
-    const overlay = document.createElement("div");
-    overlay.className = "play-overlay";
-    const button = document.createElement("span");
-    button.className = "play-button";
-    button.setAttribute("aria-hidden", "true");
-    button.innerHTML = '<svg width="19" height="19" viewBox="0 0 19 19"><path d="M6.7 4.2c0-.7.8-1.1 1.4-.7l7 4.6c.5.3.5 1.1 0 1.4l-7 4.6c-.6.4-1.4 0-1.4-.7V4.2Z" fill="currentColor"/></svg>';
-    overlay.appendChild(button);
-    return overlay;
   }
   function getArtworkUrl(artwork) {
     return artwork ? getImageUrl(artwork.itemId, artwork.imageType, artwork.maxWidth) : "";
@@ -1989,12 +1988,15 @@
     const label = document.createElement("p");
     label.className = "series-next-up-label";
     label.textContent = "Next up:";
-    const target = document.createElement("button");
+    const target = document.createElement("div");
     target.className = "series-next-up-target";
-    target.type = "button";
     target.dataset.seriesNextUp = item.Id || "";
     target.dataset.name = viewModel.title;
-    target.setAttribute("aria-label", [
+    const detailsButton = document.createElement("button");
+    detailsButton.className = "series-next-up-details";
+    detailsButton.type = "button";
+    detailsButton.setAttribute("data-clickable", "");
+    detailsButton.setAttribute("aria-label", [
       "View episode details:",
       viewModel.episodeNumber,
       viewModel.title,
@@ -2009,7 +2011,9 @@
     image.dataset.itemId = item.SeriesId || "";
     image.dataset.type = "Series";
     image.alt = "";
-    artwork.appendChild(image);
+    const playButton = buildPlayButton(`${getPlayActionLabel(item)} ${viewModel.title}`);
+    applyDetailPlaybackContext(playButton, item);
+    artwork.append(image, playButton);
     const copy = document.createElement("span");
     copy.className = "series-next-up-copy";
     const title = document.createElement("span");
@@ -2019,7 +2023,7 @@
     metadata.className = "series-next-up-metadata";
     metadata.textContent = [viewModel.episodeNumber, viewModel.duration].filter(Boolean).join(" · ");
     copy.append(title, metadata);
-    target.append(artwork, copy);
+    target.append(detailsButton, artwork, copy);
     nextUp.append(label, target);
     return nextUp;
   }
@@ -2308,7 +2312,6 @@
         items: continueWatchingItems,
         options: {
           homeThumbnail: true,
-          directPlay: true,
           showSeriesName: true,
           showEpisodeNumber: true,
           hideRuntime: true,
@@ -2321,7 +2324,6 @@
         items: newestEpisodes,
         options: {
           homeThumbnail: true,
-          directPlay: true,
           showSeriesName: true,
           showEpisodeNumber: true,
           hideRuntime: true,
@@ -2631,51 +2633,6 @@
     }
   });
 
-  // src/sidebar/runtimeUtils.ts
-  function log(...args) {
-    if (DEBUG_LOGS) {
-      console.log("Jellyfin UI:", ...args);
-    }
-  }
-  function getServerHost(serverUrl) {
-    try {
-      return new URL(serverUrl).hostname;
-    } catch (error) {
-      return serverUrl;
-    }
-  }
-  function normalizeQuery(value) {
-    return value.trim().toLowerCase();
-  }
-
-  // src/sidebar/requests/coordinator.ts
-  class LatestRequest {
-    generation = 0;
-    begin() {
-      this.generation += 1;
-      return this.generation;
-    }
-    cancel() {
-      this.generation += 1;
-    }
-    isCurrent(token) {
-      return token === this.generation;
-    }
-  }
-
-  class RequestCache {
-    values = new Map;
-    get(key) {
-      return this.values.get(key);
-    }
-    set(key, value) {
-      this.values.set(key, value);
-    }
-    clear() {
-      this.values.clear();
-    }
-  }
-
   // src/sidebar/requests/details.ts
   function createDetailsRequests(port) {
     async function loadNextUp(userId, seriesId) {
@@ -2696,16 +2653,17 @@
         return null;
       }
     }
-    async function loadPlaybackItem(userId, seriesId) {
+    async function loadSeriesPlaybackItem(userId, seriesId) {
       return await loadNextUp(userId, seriesId) || await loadFirstEpisode(userId, seriesId);
     }
     return {
       loadItem: (itemId) => port.fetchItemDetails(itemId),
+      loadSeriesPlaybackItem,
       async loadSeries(userId, seriesId) {
         const seasonsEndpoint = buildSeasonsEndpoint(userId, seriesId);
         const [details, playbackItem, seasonsData] = await Promise.all([
           port.fetchItemDetails(seriesId),
-          loadPlaybackItem(userId, seriesId),
+          loadSeriesPlaybackItem(userId, seriesId),
           port.requestJson("GET", seasonsEndpoint)
         ]);
         return {
@@ -2866,6 +2824,51 @@
     requestJson: apiRequest,
     fetchItemDetails
   });
+
+  // src/sidebar/runtimeUtils.ts
+  function log(...args) {
+    if (DEBUG_LOGS) {
+      console.log("Jellyfin UI:", ...args);
+    }
+  }
+  function getServerHost(serverUrl) {
+    try {
+      return new URL(serverUrl).hostname;
+    } catch (error) {
+      return serverUrl;
+    }
+  }
+  function normalizeQuery(value) {
+    return value.trim().toLowerCase();
+  }
+
+  // src/sidebar/requests/coordinator.ts
+  class LatestRequest {
+    generation = 0;
+    begin() {
+      this.generation += 1;
+      return this.generation;
+    }
+    cancel() {
+      this.generation += 1;
+    }
+    isCurrent(token) {
+      return token === this.generation;
+    }
+  }
+
+  class RequestCache {
+    values = new Map;
+    get(key) {
+      return this.values.get(key);
+    }
+    set(key, value) {
+      this.values.set(key, value);
+    }
+    clear() {
+      this.values.clear();
+    }
+  }
 
   // src/sidebar/controllers/loaders.ts
   var LIBRARY_PAGE_SIZE = 60;
@@ -3609,13 +3612,13 @@
     if (context.type === "Series") {
       return "open-series";
     }
-    if (context.type === "Movie" && !context.directPlay) {
+    if (context.type === "Movie") {
       return "open-movie";
     }
-    if (context.type === "Episode" && !context.directPlay) {
+    if (context.type === "Episode") {
       return "open-episode";
     }
-    return "play";
+    return null;
   }
 
   // src/sidebar/controllers/events.ts
@@ -3638,7 +3641,6 @@
     ui.clearSearchButton.addEventListener("click", handleClearSearch);
     ui.bottomDetailActions.addEventListener("click", handleContentClick);
     ui.content.addEventListener("click", handleContentClick);
-    ui.content.addEventListener("keydown", handleContentKeydown);
     ui.content.addEventListener("error", handleContentError, true);
   }
   function setupBackdropInteractionListeners() {
@@ -3682,6 +3684,9 @@
   }
   function handleContentClick(event) {
     const target = event.target;
+    if (handleCardPlayClick(target)) {
+      return;
+    }
     if (handleDetailQueueClick(target)) {
       return;
     }
@@ -3710,14 +3715,38 @@
     }
     handleListCardSelection(card);
   }
-  function handleSeriesNextUpClick(target) {
-    const button = target?.closest("[data-series-next-up]");
+  function handleCardPlayClick(target) {
+    const button = target?.closest("[data-card-play]");
     if (!button) {
       return false;
     }
-    const episodeId = button.dataset.seriesNextUp || "";
+    const context = getCardContext(findListCard(button));
+    if (context?.id) {
+      playCard(context);
+    }
+    return true;
+  }
+  async function playCard(context) {
+    let playbackContext = context;
+    if (context.type === "Series") {
+      const item = await sidebarRequests.details.loadSeriesPlaybackItem(state.userId, context.id);
+      if (!item?.Id) {
+        showError("No playable episodes are available for this series.");
+        return;
+      }
+      playbackContext = buildCardContext(item);
+    }
+    const { id, name, resume, context: itemContext } = playbackContext;
+    await playItem(id, name, resume, itemContext);
+  }
+  function handleSeriesNextUpClick(target) {
+    const item = target?.closest("[data-series-next-up]");
+    if (!item) {
+      return false;
+    }
+    const episodeId = item.dataset.seriesNextUp || "";
     if (episodeId) {
-      loadEpisode(episodeId, button.dataset.name || "Episode");
+      loadEpisode(episodeId, item.dataset.name || "Episode");
     }
     return true;
   }
@@ -3810,26 +3839,14 @@
   function isSearchFilter(value) {
     return value === "all" || value === "movie" || value === "series" || value === "episode";
   }
-  function handleContentKeydown(event) {
-    if (event.key !== "Enter" && event.key !== " ") {
-      return;
-    }
-    const card = findListCard(event.target);
-    if (!card || !ui.content.contains(card)) {
-      return;
-    }
-    event.preventDefault();
-    handleListCardSelection(card);
-  }
   function handleListCardSelection(card) {
     const details = getCardContext(card);
     if (!details || !details.id) {
       return;
     }
-    const { id, name, resume, context } = details;
+    const { id, name } = details;
     const action = resolveCardSelection(details);
-    if (action === "play") {
-      playItem(id, name, resume, context);
+    if (!action) {
       return;
     }
     prepareForDetailsNavigation();

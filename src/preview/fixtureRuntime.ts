@@ -69,6 +69,9 @@ export function setupFixturePreview(): void {
 
 function handleContentClick(event: MouseEvent): void {
     const target = event.target as HTMLElement | null;
+    if (target?.closest("[data-card-play], [data-detail-play]")) {
+        return;
+    }
     if (target?.closest("[data-series-next-up]")) {
         navigateToPreview("episode");
         return;
@@ -91,9 +94,9 @@ function handleContentClick(event: MouseEvent): void {
     const context = getCardContext(findListCard(event.target));
     if (context?.type === "Series") {
         navigateToPreview("series");
-    } else if (context?.type === "Movie" && !context.directPlay) {
+    } else if (context?.type === "Movie") {
         navigateToPreview("movie");
-    } else if (context?.type === "Episode" && !context.directPlay) {
+    } else if (context?.type === "Episode") {
         navigateToPreview("episode");
     }
 }

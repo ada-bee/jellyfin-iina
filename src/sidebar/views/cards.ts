@@ -1,6 +1,7 @@
 import type { JellyfinBaseItem } from "../../jellyfin/types";
 import {
     buildMediaCardViewModel,
+    getPlayActionLabel,
     type CardContext,
     type ListCardOptions,
     type MediaCardViewModel
@@ -29,14 +30,16 @@ export function buildListCardElement(item: JellyfinBaseItem, options: ListCardOp
     card.classList.toggle("library-poster-card", Boolean(options.libraryPoster));
     card.classList.toggle("series-episode-card", Boolean(options.episodeRow));
     applyCardContext(card, viewModel.context);
+    card.appendChild(buildCardDetailsButton(viewModel));
 
     const thumbWrapper = document.createElement("div");
     thumbWrapper.className = "thumb-wrapper";
     thumbWrapper.appendChild(buildCardImage(item, options));
-
-    if (viewModel.showPlayOverlay) {
-        thumbWrapper.appendChild(buildPlayOverlay());
-    }
+    const playButton = buildPlayButton(
+        `${getPlayActionLabel(item)} ${viewModel.context.name}`
+    );
+    playButton.dataset.cardPlay = "";
+    thumbWrapper.appendChild(playButton);
     if (viewModel.remainingLabel && !viewModel.artworkOnly) {
         const label = document.createElement("div");
         label.className = "resume-label";
@@ -51,7 +54,6 @@ export function buildListCardElement(item: JellyfinBaseItem, options: ListCardOp
         thumbWrapper.appendChild(buildWatchedIndicator());
     }
 
-    card.setAttribute("aria-label", viewModel.accessibleName);
     card.title = viewModel.accessibleName;
     card.appendChild(thumbWrapper);
     if (!viewModel.artworkOnly) {
@@ -78,7 +80,6 @@ export function getCardContext(card: HTMLElement | null): CardContext | null {
         name: card.dataset.name || "",
         type: card.dataset.type || "",
         resume,
-        directPlay: card.dataset.directPlay === "true",
         context: {
             seriesId: card.dataset.seriesId || "",
             seasonId: card.dataset.seasonId || "",
@@ -128,6 +129,17 @@ export function buildWatchedIndicator(): HTMLElement {
     indicator.setAttribute("title", "Watched");
     indicator.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="m3 7.2 2.5 2.5L11.2 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     return indicator;
+}
+
+export function buildPlayButton(accessibleLabel: string): HTMLButtonElement {
+    const button = document.createElement("button");
+    button.className = "play-button";
+    button.type = "button";
+    button.setAttribute("data-clickable", "");
+    button.setAttribute("aria-label", accessibleLabel);
+    button.title = accessibleLabel;
+    button.innerHTML = '<svg width="23" height="23" viewBox="0 0 23 23" aria-hidden="true"><path d="M7.8 4.9c0-.8.9-1.3 1.6-.8l8.4 5.5c.7.4.7 1.4 0 1.8l-8.4 5.5c-.7.5-1.6 0-1.6-.8V4.9Z" fill="currentColor"/></svg>';
+    return button;
 }
 
 export function getImageUrl(
@@ -228,6 +240,16 @@ function buildCardBody(viewModel: MediaCardViewModel, options: ListCardOptions):
     return body;
 }
 
+function buildCardDetailsButton(viewModel: MediaCardViewModel): HTMLButtonElement {
+    const button = document.createElement("button");
+    button.className = "card-details-button";
+    button.type = "button";
+    button.dataset.cardDetails = "";
+    button.setAttribute("data-clickable", "");
+    button.setAttribute("aria-label", `View details: ${viewModel.accessibleName}`);
+    return button;
+}
+
 function applyCardContext(card: HTMLElement, context: CardContext): void {
     card.dataset.id = context.id;
     card.dataset.name = context.name;
@@ -238,21 +260,6 @@ function applyCardContext(card: HTMLElement, context: CardContext): void {
     card.dataset.episodeIndex = context.context.episodeIndex === null
         ? ""
         : String(context.context.episodeIndex);
-    card.dataset.directPlay = String(context.directPlay);
-    card.setAttribute("data-clickable", "");
-    card.tabIndex = 0;
-    card.setAttribute("role", "button");
-}
-
-function buildPlayOverlay(): HTMLElement {
-    const overlay = document.createElement("div");
-    overlay.className = "play-overlay";
-    const button = document.createElement("span");
-    button.className = "play-button";
-    button.setAttribute("aria-hidden", "true");
-    button.innerHTML = '<svg width="19" height="19" viewBox="0 0 19 19"><path d="M6.7 4.2c0-.7.8-1.1 1.4-.7l7 4.6c.5.3.5 1.1 0 1.4l-7 4.6c-.6.4-1.4 0-1.4-.7V4.2Z" fill="currentColor"/></svg>';
-    overlay.appendChild(button);
-    return overlay;
 }
 
 function getArtworkUrl(artwork: ArtworkSource | null): string {

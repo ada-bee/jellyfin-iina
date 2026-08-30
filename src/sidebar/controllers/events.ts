@@ -1,8 +1,16 @@
 import { ui } from "../dom";
 import { setFocusedBackdropCard, setHoveredBackdropCard } from "../backdropContext";
-import { findListCard, getCardContext, handleContentError, setSearchFilter } from "../views";
+import {
+    findListCard,
+    getCardContext,
+    handleContentError,
+    setSearchFilter,
+    showError
+} from "../views";
 import { state, type SearchFilter } from "../store";
 import { playItem, queueItem, type PlaybackContext } from "../playback";
+import { sidebarRequests } from "../../adapters/browser/sidebarRequests";
+import { buildCardContext, type CardContext } from "../viewModels";
 import {
     handleBack,
     handleClearSearch,
@@ -44,7 +52,6 @@ export function setupEventListeners(): void {
     ui.clearSearchButton.addEventListener("click", handleClearSearch);
     ui.bottomDetailActions.addEventListener("click", handleContentClick);
     ui.content.addEventListener("click", handleContentClick);
-    ui.content.addEventListener("keydown", handleContentKeydown);
     ui.content.addEventListener("error", handleContentError, true);
 }
 
@@ -94,6 +101,9 @@ function handleContentFocusOut(event: FocusEvent): void {
 
 function handleContentClick(event: MouseEvent): void {
     const target = event.target as HTMLElement | null;
+    if (handleCardPlayClick(target)) {
+        return;
+    }
     if (handleDetailQueueClick(target)) {
         return;
     }
@@ -124,14 +134,40 @@ function handleContentClick(event: MouseEvent): void {
     handleListCardSelection(card);
 }
 
-function handleSeriesNextUpClick(target: HTMLElement | null): boolean {
-    const button = target?.closest<HTMLButtonElement>("[data-series-next-up]");
+function handleCardPlayClick(target: HTMLElement | null): boolean {
+    const button = target?.closest<HTMLButtonElement>("[data-card-play]");
     if (!button) {
         return false;
     }
-    const episodeId = button.dataset.seriesNextUp || "";
+    const context = getCardContext(findListCard(button));
+    if (context?.id) {
+        void playCard(context);
+    }
+    return true;
+}
+
+async function playCard(context: CardContext): Promise<void> {
+    let playbackContext = context;
+    if (context.type === "Series") {
+        const item = await sidebarRequests.details.loadSeriesPlaybackItem(state.userId, context.id);
+        if (!item?.Id) {
+            showError("No playable episodes are available for this series.");
+            return;
+        }
+        playbackContext = buildCardContext(item);
+    }
+    const { id, name, resume, context: itemContext } = playbackContext;
+    await playItem(id, name, resume, itemContext);
+}
+
+function handleSeriesNextUpClick(target: HTMLElement | null): boolean {
+    const item = target?.closest<HTMLElement>("[data-series-next-up]");
+    if (!item) {
+        return false;
+    }
+    const episodeId = item.dataset.seriesNextUp || "";
     if (episodeId) {
-        void loadEpisode(episodeId, button.dataset.name || "Episode");
+        void loadEpisode(episodeId, item.dataset.name || "Episode");
     }
     return true;
 }
@@ -260,30 +296,15 @@ function isSearchFilter(value: string | undefined): value is SearchFilter {
     return value === "all" || value === "movie" || value === "series" || value === "episode";
 }
 
-function handleContentKeydown(event: KeyboardEvent): void {
-    if (event.key !== "Enter" && event.key !== " ") {
-        return;
-    }
-
-    const card = findListCard(event.target);
-    if (!card || !ui.content.contains(card)) {
-        return;
-    }
-
-    event.preventDefault();
-    handleListCardSelection(card);
-}
-
 function handleListCardSelection(card: HTMLElement): void {
     const details = getCardContext(card);
     if (!details || !details.id) {
         return;
     }
 
-    const { id, name, resume, context } = details;
+    const { id, name } = details;
     const action = resolveCardSelection(details);
-    if (action === "play") {
-        void playItem(id, name, resume, context);
+    if (!action) {
         return;
     }
     prepareForDetailsNavigation();

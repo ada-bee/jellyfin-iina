@@ -15,6 +15,7 @@ import { setBackdropDetail } from "../backdropContext";
 import { ui } from "../dom";
 import {
     buildMediaList,
+    buildPlayButton,
     buildThumbProgressElement,
     buildWatchedIndicator,
     getImageUrl
@@ -152,12 +153,16 @@ function buildSeriesNextUp(item: JellyfinBaseItem): HTMLElement {
     label.className = "series-next-up-label";
     label.textContent = "Next up:";
 
-    const target = document.createElement("button");
+    const target = document.createElement("div");
     target.className = "series-next-up-target";
-    target.type = "button";
     target.dataset.seriesNextUp = item.Id || "";
     target.dataset.name = viewModel.title;
-    target.setAttribute("aria-label", [
+
+    const detailsButton = document.createElement("button");
+    detailsButton.className = "series-next-up-details";
+    detailsButton.type = "button";
+    detailsButton.setAttribute("data-clickable", "");
+    detailsButton.setAttribute("aria-label", [
         "View episode details:",
         viewModel.episodeNumber,
         viewModel.title,
@@ -173,7 +178,9 @@ function buildSeriesNextUp(item: JellyfinBaseItem): HTMLElement {
     image.dataset.itemId = item.SeriesId || "";
     image.dataset.type = "Series";
     image.alt = "";
-    artwork.appendChild(image);
+    const playButton = buildPlayButton(`${getPlayActionLabel(item)} ${viewModel.title}`);
+    applyDetailPlaybackContext(playButton, item);
+    artwork.append(image, playButton);
 
     const copy = document.createElement("span");
     copy.className = "series-next-up-copy";
@@ -184,7 +191,7 @@ function buildSeriesNextUp(item: JellyfinBaseItem): HTMLElement {
     metadata.className = "series-next-up-metadata";
     metadata.textContent = [viewModel.episodeNumber, viewModel.duration].filter(Boolean).join(" · ");
     copy.append(title, metadata);
-    target.append(artwork, copy);
+    target.append(detailsButton, artwork, copy);
     nextUp.append(label, target);
     return nextUp;
 }

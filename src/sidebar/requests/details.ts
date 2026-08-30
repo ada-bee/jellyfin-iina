@@ -16,6 +16,7 @@ export interface SeriesDetailsData {
 
 export interface DetailsRequests {
     loadItem(itemId: string): Promise<JellyfinBaseItem | null>;
+    loadSeriesPlaybackItem(userId: string, seriesId: string): Promise<JellyfinBaseItem | null>;
     loadSeries(userId: string, seriesId: string): Promise<SeriesDetailsData>;
     loadEpisodes(userId: string, seriesId: string, seasonId: string): Promise<JellyfinBaseItem[]>;
 }
@@ -41,18 +42,22 @@ export function createDetailsRequests(port: SidebarRequestPort): DetailsRequests
         }
     }
 
-    async function loadPlaybackItem(userId: string, seriesId: string): Promise<JellyfinBaseItem | null> {
+    async function loadSeriesPlaybackItem(
+        userId: string,
+        seriesId: string
+    ): Promise<JellyfinBaseItem | null> {
         return await loadNextUp(userId, seriesId) || await loadFirstEpisode(userId, seriesId);
     }
 
     return {
         loadItem: itemId => port.fetchItemDetails(itemId),
+        loadSeriesPlaybackItem,
 
         async loadSeries(userId: string, seriesId: string): Promise<SeriesDetailsData> {
             const seasonsEndpoint = buildSeasonsEndpoint(userId, seriesId);
             const [details, playbackItem, seasonsData] = await Promise.all([
                 port.fetchItemDetails(seriesId),
-                loadPlaybackItem(userId, seriesId),
+                loadSeriesPlaybackItem(userId, seriesId),
                 port.requestJson<{ Items?: JellyfinBaseItem[] }>("GET", seasonsEndpoint)
             ]);
             return {

@@ -28,7 +28,6 @@ describe("sidebar view models", () => {
 
         const viewModel = buildMediaCardViewModel(episode, {
             homeThumbnail: true,
-            directPlay: true,
             showSeriesName: true,
             showEpisodeNumber: true,
             hideRuntime: true
@@ -40,12 +39,10 @@ describe("sidebar view models", () => {
             accessibleName: "The Plan, North Station · S02 E03, 45 min left",
             remainingLabel: "45 min left",
             progressPercent: 25,
-            showPlayOverlay: true,
             context: {
                 id: "episode-1",
                 name: "The Plan",
                 resume: 15 * TICKS_PER_MINUTE,
-                directPlay: true,
                 context: {
                     seriesId: "series-1",
                     seasonId: "season-2",

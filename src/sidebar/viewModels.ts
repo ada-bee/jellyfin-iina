@@ -20,7 +20,6 @@ export interface ListCardOptions {
     libraryPoster?: boolean;
     usePosterImage?: boolean;
     hideRuntime?: boolean;
-    directPlay?: boolean;
     episodeRow?: boolean;
 }
 
@@ -29,7 +28,6 @@ export interface CardContext {
     name: string;
     type: string;
     resume: number;
-    directPlay: boolean;
     context: {
         seriesId: string;
         seasonId: string;
@@ -42,7 +40,6 @@ export type EpisodeLoadState = "ready" | "loading" | "error";
 export interface MediaCardViewModel {
     context: CardContext;
     artworkOnly: boolean;
-    showPlayOverlay: boolean;
     played: boolean;
     remainingLabel: string;
     progressPercent: number | null;
@@ -122,9 +119,8 @@ export function buildMediaCardViewModel(
     const artworkOnly = Boolean(options.homePoster || options.libraryPoster);
 
     return {
-        context: buildCardContext(item, Boolean(options.directPlay)),
+        context: buildCardContext(item),
         artworkOnly,
-        showPlayOverlay: !artworkOnly && !opensDetails(item, options),
         played: Boolean(item.UserData?.Played),
         remainingLabel,
         progressPercent: getProgressPercent(item),
@@ -186,13 +182,12 @@ function buildSearchResultSection(
     return { filter, label, items: items.filter(item => item.Type === itemType) };
 }
 
-export function buildCardContext(item: JellyfinBaseItem, directPlay: boolean = false): CardContext {
+export function buildCardContext(item: JellyfinBaseItem): CardContext {
     return {
         id: item.Id || "",
         name: String(item.Name || "Untitled"),
         type: item.Type || "",
         resume: item.UserData?.PlaybackPositionTicks || 0,
-        directPlay,
         context: {
             seriesId: item.SeriesId || "",
             seasonId: item.SeasonId || item.ParentId || "",
@@ -229,11 +224,6 @@ export function getProgressPercent(item: JellyfinBaseItem): number | null {
     const position = item.UserData?.PlaybackPositionTicks || 0;
     const percent = runtime ? Math.min((position / runtime) * 100, 100) : 0;
     return percent >= 1 ? percent : null;
-}
-
-function opensDetails(item: JellyfinBaseItem, options: ListCardOptions): boolean {
-    return !options.directPlay
-        && (item.Type === "Movie" || item.Type === "Series" || item.Type === "Episode");
 }
 
 function getEpisodeRowNumber(item: JellyfinBaseItem): string {
