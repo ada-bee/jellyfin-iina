@@ -2,8 +2,12 @@ import type { JellyfinBaseItem } from "../../jellyfin/types";
 import {
     buildMediaDetailsViewModel,
     getProgressPercent,
+    getPlayActionLabel,
     getSeriesPlayLabel,
     type EpisodeLoadState,
+    type MediaFileMetadataGroup,
+    type MediaFileMetadataTrack,
+    type MediaFileTrackKind,
     type MediaDetailsViewModel
 } from "../viewModels";
 import { setBackdropDetail } from "../backdropContext";
@@ -20,9 +24,20 @@ import { buildDisclosureChevron } from "./elements";
 import { getDetailPlaybackLabel } from "../artwork";
 
 export function renderMovieDetails(item: JellyfinBaseItem): void {
-    const details = buildMediaDetails(item, buildMediaDetailsViewModel(item), item);
+    const viewModel = buildMediaDetailsViewModel(item);
+    const details = buildMediaDetails(
+        item,
+        viewModel,
+        item,
+        "",
+        false
+    );
     details.classList.add("movie-details");
+    if (viewModel.mediaFileMetadata.length > 0) {
+        details.appendChild(buildMediaFileInfo(viewModel.mediaFileMetadata));
+    }
     replaceContent(details);
+    renderMovieDetailActions(item);
     setBackdropDetail(item);
 }
 
@@ -72,13 +87,100 @@ function buildMediaDetails(
     item: JellyfinBaseItem,
     viewModel: MediaDetailsViewModel,
     playbackItem: JellyfinBaseItem | null,
-    playbackLabel: string = ""
+    playbackLabel: string = "",
+    artworkClickable: boolean = true
 ): HTMLElement {
     const details = document.createElement("article");
     details.className = "media-details";
-    details.appendChild(buildMediaDetailArtwork(item, playbackItem, playbackLabel));
+    details.appendChild(buildMediaDetailArtwork(
+        item,
+        playbackItem,
+        playbackLabel,
+        artworkClickable
+    ));
     details.appendChild(buildMediaDetailInfo(viewModel));
     return details;
+}
+
+function renderMovieDetailActions(item: JellyfinBaseItem): void {
+    const play = document.createElement("button");
+    play.className = "media-detail-action media-detail-action--primary";
+    play.type = "button";
+    applyDetailPlaybackContext(play, item);
+    const playLabel = getPlayActionLabel(item);
+    play.setAttribute("aria-label", `${playLabel} ${String(item.Name || "movie")}`);
+    play.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M4.5 2.8c0-.6.7-.9 1.2-.6l6 4c.4.3.4.9 0 1.2l-6 4c-.5.3-1.2 0-1.2-.6v-8Z" fill="currentColor"/></svg><span>${playLabel}</span>`;
+
+    const queue = document.createElement("button");
+    queue.className = "media-detail-action media-detail-action--secondary";
+    queue.type = "button";
+    applyDetailQueueContext(queue, item);
+    queue.setAttribute("aria-label", `Queue ${String(item.Name || "movie")}`);
+    queue.innerHTML = '<svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true"><path d="M2.2 4h7.2M2.2 7.5h7.2M2.2 11h4.6M11.7 8.8v4.4M9.5 11h4.4" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/></svg><span>Queue</span>';
+
+    ui.bottomDetailActions.replaceChildren(play, queue);
+    ui.bottomDetailActions.classList.remove("hidden");
+}
+
+function buildMediaFileInfo(groups: MediaFileMetadataGroup[]): HTMLElement {
+    const section = document.createElement("section");
+    section.className = "media-file-info";
+    section.setAttribute("aria-label", "Media file");
+    const list = document.createElement("dl");
+    list.className = "media-file-metadata";
+    groups.forEach(group => list.appendChild(buildMediaFileGroup(group)));
+    section.appendChild(list);
+    return section;
+}
+
+function buildMediaFileGroup(group: MediaFileMetadataGroup): HTMLElement {
+    const row = document.createElement("div");
+    row.className = "media-file-group";
+    const label = document.createElement("dt");
+    label.textContent = `${group.label}:`;
+    const tracks = document.createElement("dd");
+    group.tracks.forEach(track => tracks.appendChild(buildMediaFileTrack(group.kind, track)));
+    row.append(label, tracks);
+    return row;
+}
+
+function buildMediaFileTrack(
+    kind: MediaFileTrackKind,
+    track: MediaFileMetadataTrack
+): HTMLElement {
+    const element = document.createElement(track.selectable ? "button" : "div");
+    element.className = "media-file-track";
+    if (element instanceof HTMLButtonElement) {
+        element.type = "button";
+        element.dataset.mediaTrack = kind;
+        element.dataset.streamIndex = String(track.streamIndex);
+        element.setAttribute("aria-pressed", String(track.selected));
+        element.setAttribute("data-clickable", "");
+        element.addEventListener("click", () => selectMediaFileTrack(element, kind));
+    }
+    const title = document.createElement("span");
+    title.className = "media-file-track-title";
+    title.textContent = track.title;
+    element.appendChild(title);
+    if (track.technical) {
+        const technical = document.createElement("span");
+        technical.className = "media-file-track-technical";
+        technical.textContent = ` · ${track.technical}`;
+        element.appendChild(technical);
+    }
+    return element;
+}
+
+function selectMediaFileTrack(
+    selected: HTMLButtonElement,
+    kind: MediaFileTrackKind
+): void {
+    const deselect = kind === "subtitle" && selected.getAttribute("aria-pressed") === "true";
+    selected.closest("dd")?.querySelectorAll<HTMLButtonElement>("[data-media-track]")
+        .forEach(track => track.setAttribute("aria-pressed", "false"));
+    if (!deselect) {
+        selected.setAttribute("aria-pressed", "true");
+    }
 }
 
 function buildMediaDetailInfo(viewModel: MediaDetailsViewModel): HTMLElement {
@@ -90,9 +192,6 @@ function buildMediaDetailInfo(viewModel: MediaDetailsViewModel): HTMLElement {
         metadata.className = "media-detail-meta";
         metadata.textContent = viewModel.metadata;
         info.appendChild(metadata);
-    }
-    if (viewModel.watched) {
-        info.appendChild(buildMediaDetailWatchedState());
     }
     appendMediaDetailCopy(info, viewModel);
     return info;
@@ -116,9 +215,10 @@ function appendMediaDetailCopy(container: HTMLElement, viewModel: MediaDetailsVi
 function buildMediaDetailArtwork(
     item: JellyfinBaseItem,
     playbackItem: JellyfinBaseItem | null,
-    playbackLabel: string
+    playbackLabel: string,
+    clickable: boolean
 ): HTMLElement {
-    const artwork = buildMediaDetailArtworkContainer(item, playbackItem, playbackLabel);
+    const artwork = buildMediaDetailArtworkContainer(item, playbackItem, playbackLabel, clickable);
     artwork.appendChild(buildMediaDetailImage(item));
     appendMediaDetailPlaybackState(artwork, playbackItem);
     return artwork;
@@ -127,9 +227,10 @@ function buildMediaDetailArtwork(
 function buildMediaDetailArtworkContainer(
     item: JellyfinBaseItem,
     playbackItem: JellyfinBaseItem | null,
-    playbackLabel: string
+    playbackLabel: string,
+    clickable: boolean
 ): HTMLElement {
-    if (!playbackItem) {
+    if (!playbackItem || !clickable) {
         const artwork = document.createElement("div");
         artwork.className = "media-detail-artwork";
         return artwork;
@@ -170,16 +271,18 @@ function appendMediaDetailPlaybackState(
     }
 }
 
-function buildMediaDetailWatchedState(): HTMLElement {
-    const watched = document.createElement("div");
-    watched.className = "media-detail-watched";
-    watched.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="m3 7.2 2.5 2.5L11.2 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Watched</span>';
-    return watched;
+function applyDetailPlaybackContext(element: HTMLElement, item: JellyfinBaseItem): void {
+    element.dataset.detailPlay = "";
+    applyDetailActionContext(element, item);
 }
 
-function applyDetailPlaybackContext(element: HTMLElement, item: JellyfinBaseItem): void {
+function applyDetailQueueContext(element: HTMLElement, item: JellyfinBaseItem): void {
+    element.dataset.detailQueue = "";
+    applyDetailActionContext(element, item);
+}
+
+function applyDetailActionContext(element: HTMLElement, item: JellyfinBaseItem): void {
     const resumeTicks = item.UserData?.Played ? 0 : item.UserData?.PlaybackPositionTicks || 0;
-    element.dataset.detailPlay = "";
     element.dataset.id = item.Id || "";
     element.dataset.name = String(item.Name || "Untitled");
     element.dataset.resume = String(resumeTicks);

@@ -14,6 +14,7 @@ import {
 } from "../../jellyfin/client";
 import { IINA_DEVICE_PROFILE } from "../../jellyfin/deviceProfile";
 import { buildPlaybackInfoRequest } from "../../playback/negotiation";
+import type { PlaybackStreamSelection } from "../../playback/negotiation";
 
 import { CLIENT_NAME, DEVICE_NAME } from "../../shared/constants";
 import { CLIENT_VERSION } from "../../jellyfin/version";
@@ -120,10 +121,13 @@ export async function fetchItemDetails(itemId: string): Promise<JellyfinBaseItem
     return await apiRequest<JellyfinBaseItem>("GET", endpoint);
 }
 
-export async function fetchPlaybackInfo(itemId: string): Promise<JellyfinPlaybackInfoResponse | null> {
+export async function fetchPlaybackInfo(
+    itemId: string,
+    selection: PlaybackStreamSelection = {}
+): Promise<JellyfinPlaybackInfoResponse | null> {
     return await apiRequest<JellyfinPlaybackInfoResponse>(
         "POST",
         `/Items/${encodeURIComponent(itemId)}/PlaybackInfo`,
-        buildPlaybackInfoRequest(state.userId, IINA_DEVICE_PROFILE)
+        buildPlaybackInfoRequest(state.userId, IINA_DEVICE_PROFILE, selection)
     );
 }

@@ -22,3 +22,19 @@ export const playItem = createPlayItem({
         showError(error instanceof Error ? error.message : "Unable to start playback.");
     }
 });
+
+export const queueItem = createPlayItem({
+    fetchPlaybackInfo,
+    fetchItemDetails,
+    getConnection: () => ({
+        serverUrl: state.serverUrl,
+        accessToken: state.accessToken,
+        userId: state.userId
+    }),
+    getDeviceId,
+    send: message => iina.postMessage(MESSAGE_NAMES.QueueItem, message),
+    reportError: error => {
+        console.error("Failed to get queue item playback info:", error);
+        showError(error instanceof Error ? error.message : "Unable to queue this item.");
+    }
+});

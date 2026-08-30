@@ -96,7 +96,23 @@ export const previewMovie: JellyfinBaseItem = {
     ...recentMovies[0],
     Overview: "After a mysterious transmission reaches an isolated mountain town, a radio astronomer must decide whether its warning is meant for Earth—or came from it.",
     Taglines: ["Some signals are better left unanswered."],
-    OfficialRating: "PG-13"
+    OfficialRating: "PG-13",
+    MediaSources: [{
+        DefaultAudioStreamIndex: 1,
+        DefaultSubtitleStreamIndex: 2,
+        MediaStreams: [
+            { Type: "Video", Width: 1920, Height: 800, Codec: "h264", BitRate: 8_000_000 },
+            { Type: "Audio", Index: 1, Language: "eng", Codec: "dts", Channels: 6 },
+            {
+                Type: "Subtitle",
+                Index: 2,
+                Language: "eng",
+                Codec: "subrip",
+                IsHearingImpaired: true
+            },
+            { Type: "Subtitle", Index: 3, Language: "spa", Codec: "hdmv_pgs_subtitle" }
+        ]
+    }]
 };
 
 export const recentEpisodes = [

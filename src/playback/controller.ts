@@ -58,26 +58,28 @@ export class PlaybackController {
     }
 
     play(request: PlaybackRequest): void {
-        const handoff = request?.playback;
-        if (!handoff?.url) {
-            return;
-        }
-        if (!isHttpsUrl(handoff.url) || !isHttpsUrl(handoff.serverUrl)) {
-            this.dependencies.view.showHttpsAlert();
+        const handoff = this.validateRequest(request);
+        if (!handoff) {
             return;
         }
 
-        this.model.handoffs.set(handoff.url, {
-            handoff,
-            title: request.title || "",
-            resumeSeconds: request.resumeSeconds || 0,
-            resetPlaylist: true
-        });
+        this.registerPendingHandoff(request, true);
         this.dependencies.logger.debug("Jellyfin: Playing requested stream");
 
         this.stopActivePlayback("replacement requested");
         this.dependencies.player.loadReplacement(handoff, request.title || "");
         this.dependencies.view.hideSidebar();
+    }
+
+    queue(request: PlaybackRequest): void {
+        const handoff = this.validateRequest(request);
+        if (!handoff) {
+            return;
+        }
+
+        this.registerPendingHandoff(request, false);
+        this.dependencies.player.loadAppend(handoff, request.title || "");
+        this.dependencies.logger.debug("Jellyfin: Queued requested stream");
     }
 
     openLibrary(): boolean {
@@ -137,7 +139,7 @@ export class PlaybackController {
         this.dependencies.logger.debug("Jellyfin: Playback ended");
         const autoplayQueued = active.autoplayQueued;
         this.stopActivePlayback("end of playback");
-        if (!autoplayQueued) {
+        if (!autoplayQueued && !this.hasQueuedPlayback()) {
             this.handleNoNextEpisode("end of playback");
         }
     }
@@ -177,6 +179,27 @@ export class PlaybackController {
         this.dependencies.player.pause();
     }
 
+    private validateRequest(request: PlaybackRequest): PlaybackHandoff | null {
+        const handoff = request?.playback;
+        if (!handoff?.url) {
+            return null;
+        }
+        if (!isHttpsUrl(handoff.url) || !isHttpsUrl(handoff.serverUrl)) {
+            this.dependencies.view.showHttpsAlert();
+            return null;
+        }
+        return handoff;
+    }
+
+    private registerPendingHandoff(request: PlaybackRequest, resetPlaylist: boolean): void {
+        this.model.handoffs.set(request.playback.url, {
+            handoff: request.playback,
+            title: request.title || "",
+            resumeSeconds: request.resumeSeconds || 0,
+            resetPlaylist
+        });
+    }
+
     private startPlaybackSession(session: PlaybackSession, pending: PendingPlayback): void {
         this.dependencies.logger.debug(
             "Jellyfin: Detected Jellyfin stream, starting playback reporting"
@@ -202,6 +225,7 @@ export class PlaybackController {
         }
 
         this.dependencies.player.loadExternalSubtitles(session);
+        this.dependencies.player.applyTrackSelection(session);
         active.reportingStarted = true;
         void this.reportStart(active);
         this.startSegmentPolling(active);
@@ -279,7 +303,7 @@ export class PlaybackController {
             this.model.playbackTickCount = 0;
             void this.reportProgress();
         }
-        if (active.autoplayQueued) {
+        if (active.autoplayQueued || this.hasQueuedPlayback()) {
             return;
         }
 
@@ -417,9 +441,6 @@ export class PlaybackController {
                 if (nextItemId && nextItemId === active.nextItemId) {
                     active.autoplayQueued = true;
                     return;
-                }
-                for (let index = playlist.length - 1; index > currentIndex; index -= 1) {
-                    this.dependencies.player.removePlaylistEntry(index);
                 }
             }
 
@@ -570,6 +591,12 @@ export class PlaybackController {
             this.model.handoffs.delete(url);
         }
         return pending;
+    }
+
+    private hasQueuedPlayback(): boolean {
+        return this.dependencies.player.getPlaylist().some(entry => (
+            Boolean(entry?.filename) && this.model.handoffs.has(entry.filename)
+        ));
     }
 
     private handleNoNextEpisode(reason: string): void {

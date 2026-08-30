@@ -4,6 +4,7 @@ export const MESSAGE_NAMES = {
     AuthUpdated: "authUpdated",
     AuthCleared: "authCleared",
     PlayItem: "playItem",
+    QueueItem: "queueItem",
     BackdropContext: "backdropContext",
     SidebarVisibilityChanged: "sidebarVisibilityChanged",
     RefreshSidebar: "refreshSidebar",
@@ -33,6 +34,8 @@ export interface PlayItemPayload {
     resumeSeconds?: number;
     title?: string;
 }
+
+export type QueueItemPayload = PlayItemPayload;
 
 export interface BackdropContextPayload {
     itemIds: string[];
@@ -68,6 +71,7 @@ export interface UiToPluginMessagePayloads {
     authUpdated: AuthUpdatedPayload;
     authCleared: AuthClearedPayload;
     playItem: PlayItemPayload;
+    queueItem: QueueItemPayload;
     backdropContext: BackdropContextPayload;
     sidebarVisibilityChanged: SidebarVisibilityChangedPayload;
     skipSegment: SkipSegmentPayload;

@@ -25,6 +25,13 @@ export interface PlaybackHandoffOptions extends StreamUrlOptions {
     seriesId?: string;
     seasonId?: string;
     episodeIndex?: number | null;
+    audioStreamIndex?: number | null;
+    subtitleStreamIndex?: number | null;
+}
+
+export interface PlaybackStreamSelection {
+    audioStreamIndex?: number | null;
+    subtitleStreamIndex?: number | null;
 }
 
 const EPISODE_TITLE_SEPARATOR = " \u2022 ";
@@ -50,10 +57,13 @@ export function buildJellyfinStreamUrl(options: StreamUrlOptions): string {
 
 export function buildPlaybackInfoRequest(
     userId: string,
-    deviceProfile: JellyfinDeviceProfile
+    deviceProfile: JellyfinDeviceProfile,
+    selection: PlaybackStreamSelection = {}
 ): JellyfinPlaybackInfoDto {
     return {
         UserId: userId,
+        AudioStreamIndex: selection.audioStreamIndex,
+        SubtitleStreamIndex: selection.subtitleStreamIndex,
         DeviceProfile: deviceProfile,
         EnableDirectPlay: true,
         EnableDirectStream: true,
@@ -100,6 +110,12 @@ export function buildPlaybackHandoff(
     if (!url) {
         throw new Error("Jellyfin returned incomplete playback information.");
     }
+    const audioStreamIndex = options.audioStreamIndex === undefined
+        ? mediaSource.DefaultAudioStreamIndex
+        : options.audioStreamIndex;
+    const subtitleStreamIndex = options.subtitleStreamIndex === undefined
+        ? mediaSource.DefaultSubtitleStreamIndex
+        : options.subtitleStreamIndex;
 
     return {
         url,
@@ -112,12 +128,13 @@ export function buildPlaybackHandoff(
         playSessionId,
         runtimeTicks: mediaSource.RunTimeTicks || options.runtimeTicks || 0,
         playMethod: directPlay ? "DirectPlay" : resolveTranscodingPlayMethod(mediaSource),
-        audioStreamIndex: mediaSource.DefaultAudioStreamIndex,
-        subtitleStreamIndex: mediaSource.DefaultSubtitleStreamIndex,
+        audioStreamIndex,
+        subtitleStreamIndex,
         externalSubtitles: buildExternalSubtitleTracks(
             mediaSource,
             options.serverUrl,
-            options.accessToken
+            options.accessToken,
+            subtitleStreamIndex
         ),
         seriesId: options.seriesId,
         seasonId: options.seasonId,
@@ -145,13 +162,14 @@ export function resolveTranscodingPlayMethod(
 export function buildExternalSubtitleTracks(
     mediaSource: JellyfinMediaSourceInfo,
     serverUrl: string,
-    accessToken: string
+    accessToken: string,
+    selectedStreamIndex: number | null | undefined = mediaSource.DefaultSubtitleStreamIndex
 ): ExternalSubtitleTrack[] {
     return (mediaSource.MediaStreams || [])
         .filter(isExternalSubtitleStream)
         .map(stream => buildExternalSubtitleTrack(
             stream,
-            mediaSource.DefaultSubtitleStreamIndex,
+            selectedStreamIndex,
             serverUrl,
             accessToken
         ))

@@ -4,6 +4,7 @@
     AuthUpdated: "authUpdated",
     AuthCleared: "authCleared",
     PlayItem: "playItem",
+    QueueItem: "queueItem",
     BackdropContext: "backdropContext",
     SidebarVisibilityChanged: "sidebarVisibilityChanged",
     RefreshSidebar: "refreshSidebar",
@@ -156,6 +157,20 @@
       subtitleStreamIndex: getSubtitleStreamIndex(subtitleTrack, externalSubtitles)
     };
   }
+  function resolveMpvTrackIds(trackList, externalSubtitles, selection) {
+    return {
+      audioTrackId: findMpvTrackId(trackList, "audio", selection.audioStreamIndex, externalSubtitles),
+      subtitleTrackId: findMpvTrackId(trackList, "sub", selection.subtitleStreamIndex, externalSubtitles)
+    };
+  }
+  function findMpvTrackId(trackList, type, streamIndex, externalSubtitles) {
+    if (streamIndex === undefined || streamIndex === null) {
+      return streamIndex;
+    }
+    const externalUrl = externalSubtitles.find((track2) => track2.index === streamIndex)?.url;
+    const track = trackList.find((candidate) => candidate.type === type && (candidate["ff-index"] === streamIndex || Boolean(externalUrl && candidate["external-filename"] === externalUrl)));
+    return typeof track?.id === "number" ? track.id : undefined;
+  }
   function findPrimarySelectedTrack(trackList, type) {
     return trackList.find((track) => track.type === type && track.selected === true && (track["main-selection"] === undefined || track["main-selection"] === 0)) || null;
   }
@@ -219,6 +234,9 @@
     loadNext(handoff, title) {
       iina.mpv.command("loadfile", buildLoadArguments(handoff.url, "insert-next", title));
     }
+    loadAppend(handoff, title) {
+      iina.mpv.command("loadfile", buildLoadArguments(handoff.url, "append", title));
+    }
     removePlaylistEntry(index) {
       iina.mpv.command("playlist-remove", [String(index)]);
     }
@@ -254,8 +272,19 @@
         }
       }
     }
+    applyTrackSelection(playback) {
+      const trackList = iina.mpv.getNative("track-list");
+      const trackIds = resolveMpvTrackIds(Array.isArray(trackList) ? trackList : [], playback.externalSubtitles, playback);
+      applyMpvTrackId("aid", trackIds.audioTrackId);
+      applyMpvTrackId("sid", trackIds.subtitleTrackId);
+    }
     open(url) {
       iina.core.open(url);
+    }
+  }
+  function applyMpvTrackId(property, trackId) {
+    if (trackId !== undefined) {
+      iina.mpv.set(property, trackId === null ? "no" : trackId);
     }
   }
   function buildLoadArguments(url, mode, title) {
@@ -341,24 +370,24 @@
       dependencies.view.setSkipHandler(() => this.skipActiveSegment());
     }
     play(request) {
-      const handoff = request?.playback;
-      if (!handoff?.url) {
+      const handoff = this.validateRequest(request);
+      if (!handoff) {
         return;
       }
-      if (!isHttpsUrl(handoff.url) || !isHttpsUrl(handoff.serverUrl)) {
-        this.dependencies.view.showHttpsAlert();
-        return;
-      }
-      this.model.handoffs.set(handoff.url, {
-        handoff,
-        title: request.title || "",
-        resumeSeconds: request.resumeSeconds || 0,
-        resetPlaylist: true
-      });
+      this.registerPendingHandoff(request, true);
       this.dependencies.logger.debug("Jellyfin: Playing requested stream");
       this.stopActivePlayback("replacement requested");
       this.dependencies.player.loadReplacement(handoff, request.title || "");
       this.dependencies.view.hideSidebar();
+    }
+    queue(request) {
+      const handoff = this.validateRequest(request);
+      if (!handoff) {
+        return;
+      }
+      this.registerPendingHandoff(request, false);
+      this.dependencies.player.loadAppend(handoff, request.title || "");
+      this.dependencies.logger.debug("Jellyfin: Queued requested stream");
     }
     openLibrary() {
       try {
@@ -411,7 +440,7 @@
       this.dependencies.logger.debug("Jellyfin: Playback ended");
       const autoplayQueued = active.autoplayQueued;
       this.stopActivePlayback("end of playback");
-      if (!autoplayQueued) {
+      if (!autoplayQueued && !this.hasQueuedPlayback()) {
         this.handleNoNextEpisode("end of playback");
       }
     }
@@ -446,6 +475,25 @@
       this.dependencies.logger.debug("Jellyfin: Pausing library host");
       this.dependencies.player.pause();
     }
+    validateRequest(request) {
+      const handoff = request?.playback;
+      if (!handoff?.url) {
+        return null;
+      }
+      if (!isHttpsUrl(handoff.url) || !isHttpsUrl(handoff.serverUrl)) {
+        this.dependencies.view.showHttpsAlert();
+        return null;
+      }
+      return handoff;
+    }
+    registerPendingHandoff(request, resetPlaylist) {
+      this.model.handoffs.set(request.playback.url, {
+        handoff: request.playback,
+        title: request.title || "",
+        resumeSeconds: request.resumeSeconds || 0,
+        resetPlaylist
+      });
+    }
     startPlaybackSession(session, pending) {
       this.dependencies.logger.debug("Jellyfin: Detected Jellyfin stream, starting playback reporting");
       this.stopActivePlayback("new Jellyfin file loaded");
@@ -466,6 +514,7 @@
         this.dependencies.player.setWindowTitle(pending.title);
       }
       this.dependencies.player.loadExternalSubtitles(session);
+      this.dependencies.player.applyTrackSelection(session);
       active.reportingStarted = true;
       this.reportStart(active);
       this.startSegmentPolling(active);
@@ -521,7 +570,7 @@
         this.model.playbackTickCount = 0;
         this.reportProgress();
       }
-      if (active.autoplayQueued) {
+      if (active.autoplayQueued || this.hasQueuedPlayback()) {
         return;
       }
       const duration = this.dependencies.player.getDurationSeconds();
@@ -636,9 +685,6 @@
           if (nextItemId && nextItemId === active.nextItemId) {
             active.autoplayQueued = true;
             return;
-          }
-          for (let index = playlist.length - 1;index > currentIndex; index -= 1) {
-            this.dependencies.player.removePlaylistEntry(index);
           }
         }
         this.model.handoffs.set(handoff.url, {
@@ -767,6 +813,9 @@
         this.model.handoffs.delete(url);
       }
       return pending;
+    }
+    hasQueuedPlayback() {
+      return this.dependencies.player.getPlaylist().some((entry) => Boolean(entry?.filename) && this.model.handoffs.has(entry.filename));
     }
     handleNoNextEpisode(reason) {
       this.dependencies.logger.debug("Jellyfin: No next episode:", reason);
@@ -1234,9 +1283,11 @@
     const queryString = buildQueryString2(params);
     return `${baseUrl}/Videos/${encodeURIComponent(options.itemId)}/stream?${queryString}`;
   }
-  function buildPlaybackInfoRequest(userId, deviceProfile) {
+  function buildPlaybackInfoRequest(userId, deviceProfile, selection = {}) {
     return {
       UserId: userId,
+      AudioStreamIndex: selection.audioStreamIndex,
+      SubtitleStreamIndex: selection.subtitleStreamIndex,
       DeviceProfile: deviceProfile,
       EnableDirectPlay: true,
       EnableDirectStream: true,
@@ -1265,6 +1316,8 @@
     if (!url) {
       throw new Error("Jellyfin returned incomplete playback information.");
     }
+    const audioStreamIndex = options.audioStreamIndex === undefined ? mediaSource.DefaultAudioStreamIndex : options.audioStreamIndex;
+    const subtitleStreamIndex = options.subtitleStreamIndex === undefined ? mediaSource.DefaultSubtitleStreamIndex : options.subtitleStreamIndex;
     return {
       url,
       serverUrl: normalizeServerUrl(options.serverUrl),
@@ -1276,9 +1329,9 @@
       playSessionId,
       runtimeTicks: mediaSource.RunTimeTicks || options.runtimeTicks || 0,
       playMethod: directPlay ? "DirectPlay" : resolveTranscodingPlayMethod(mediaSource),
-      audioStreamIndex: mediaSource.DefaultAudioStreamIndex,
-      subtitleStreamIndex: mediaSource.DefaultSubtitleStreamIndex,
-      externalSubtitles: buildExternalSubtitleTracks(mediaSource, options.serverUrl, options.accessToken),
+      audioStreamIndex,
+      subtitleStreamIndex,
+      externalSubtitles: buildExternalSubtitleTracks(mediaSource, options.serverUrl, options.accessToken, subtitleStreamIndex),
       seriesId: options.seriesId,
       seasonId: options.seasonId,
       episodeIndex: options.episodeIndex
@@ -1297,8 +1350,8 @@
     }
     return "Transcode";
   }
-  function buildExternalSubtitleTracks(mediaSource, serverUrl, accessToken) {
-    return (mediaSource.MediaStreams || []).filter(isExternalSubtitleStream).map((stream) => buildExternalSubtitleTrack(stream, mediaSource.DefaultSubtitleStreamIndex, serverUrl, accessToken)).filter((track) => track !== null);
+  function buildExternalSubtitleTracks(mediaSource, serverUrl, accessToken, selectedStreamIndex = mediaSource.DefaultSubtitleStreamIndex) {
+    return (mediaSource.MediaStreams || []).filter(isExternalSubtitleStream).map((stream) => buildExternalSubtitleTrack(stream, selectedStreamIndex, serverUrl, accessToken)).filter((track) => track !== null);
   }
   function isExternalSubtitleStream(stream) {
     return stream.Type === "Subtitle" && stream.DeliveryMethod === "External" && typeof stream.Index === "number" && Boolean(stream.DeliveryUrl);
@@ -1824,6 +1877,10 @@
     sidebar.onMessage(MESSAGE_NAMES.PlayItem, (data) => {
       logDebug("Jellyfin: Received playItem");
       playbackController.play(data);
+    });
+    sidebar.onMessage(MESSAGE_NAMES.QueueItem, (data) => {
+      logDebug("Jellyfin: Received queueItem");
+      playbackController.queue(data);
     });
     sidebar.onMessage(MESSAGE_NAMES.BackdropContext, (data) => {
       setBackdropContext(data);

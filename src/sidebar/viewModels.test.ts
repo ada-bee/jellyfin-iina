@@ -5,6 +5,7 @@ import {
     buildMediaCardViewModel,
     buildMediaDetailsViewModel,
     buildSearchResultsViewModel,
+    getPlayActionLabel,
     getSeriesPlayLabel
 } from "./viewModels";
 
@@ -144,7 +145,7 @@ describe("sidebar view models", () => {
             metadata: "2025 · 1h 52m · PG-13",
             tagline: "Some signals are better left unanswered.",
             overview: "A mysterious transmission arrives.",
-            watched: true
+            mediaFileMetadata: []
         });
 
         const series: JellyfinBaseItem = {
@@ -153,6 +154,87 @@ describe("sidebar view models", () => {
             Status: "Continuing"
         };
         expect(buildMediaDetailsViewModel(series, 2).metadata).toBe("2024– · 2 seasons");
+    });
+
+    test("formats movie video, audio, and subtitle streams", () => {
+        const movie: JellyfinBaseItem = {
+            Type: "Movie",
+            MediaSources: [{
+                DefaultAudioStreamIndex: 1,
+                DefaultSubtitleStreamIndex: 2,
+                MediaStreams: [
+                    { Type: "Video", Width: 1920, Height: 800, Codec: "h264", BitRate: 8_000_000 },
+                    { Type: "Audio", Index: 1, Language: "eng", Codec: "dts", Channels: 6 },
+                    {
+                        Type: "Subtitle",
+                        Index: 2,
+                        Language: "eng",
+                        Codec: "subrip",
+                        IsHearingImpaired: true
+                    },
+                    { Type: "Subtitle", Index: 3, Language: "spa", Codec: "hdmv_pgs_subtitle" }
+                ]
+            }]
+        };
+
+        expect(buildMediaDetailsViewModel(movie).mediaFileMetadata).toEqual([
+            {
+                kind: "video",
+                label: "Video",
+                tracks: [{
+                    title: "1080p",
+                    technical: "H.264 · 8 Mbps",
+                    streamIndex: null,
+                    selected: false,
+                    selectable: false
+                }]
+            },
+            {
+                kind: "audio",
+                label: "Audio",
+                tracks: [{
+                    title: "English",
+                    technical: "DTS 5.1",
+                    streamIndex: 1,
+                    selected: true,
+                    selectable: false
+                }]
+            },
+            {
+                kind: "subtitle",
+                label: "Subtitles",
+                tracks: [
+                    {
+                        title: "English",
+                        technical: "SDH · SRT",
+                        streamIndex: 2,
+                        selected: true,
+                        selectable: true
+                    },
+                    {
+                        title: "Spanish",
+                        technical: "PGS",
+                        streamIndex: 3,
+                        selected: false,
+                        selectable: true
+                    }
+                ]
+            }
+        ]);
+    });
+
+    test("only makes audio tracks selectable when alternatives exist", () => {
+        const buildAudioTracks = (streams: JellyfinBaseItem["MediaSources"]) =>
+            buildMediaDetailsViewModel({ Type: "Movie", MediaSources: streams })
+                .mediaFileMetadata.find(group => group.kind === "audio")?.tracks;
+
+        expect(buildAudioTracks([{ MediaStreams: [
+            { Type: "Audio", Index: 1, Language: "eng" }
+        ] }])?.map(track => track.selectable)).toEqual([false]);
+        expect(buildAudioTracks([{ MediaStreams: [
+            { Type: "Audio", Index: 1, Language: "eng" },
+            { Type: "Audio", Index: 2, Language: "spa" }
+        ] }])?.map(track => track.selectable)).toEqual([true, true]);
     });
 
     test("groups filtered search results without changing their order", () => {
@@ -180,5 +262,7 @@ describe("sidebar view models", () => {
             UserData: { PlaybackPositionTicks: 10 }
         };
         expect(getSeriesPlayLabel(episode)).toBe("Resume S01 E08");
+        expect(getPlayActionLabel({ UserData: { Played: true, PlaybackPositionTicks: 10 } }))
+            .toBe("Play");
     });
 });

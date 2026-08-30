@@ -82,6 +82,30 @@ describe("PlaybackController", () => {
         expect(harness.player.seeks).toEqual([11, 22]);
     });
 
+    test("appends queued playback without interrupting the active item", () => {
+        const harness = createHarness();
+        const current = handoff("current");
+        const queued = handoff("queued");
+        startPlayback(harness, current);
+
+        harness.controller.queue({ playback: queued, title: "Queued title", resumeSeconds: 24 });
+
+        expect(harness.player.replacements).toEqual([current]);
+        expect(harness.player.appendLoads).toEqual([{ handoff: queued, title: "Queued title" }]);
+        expect(harness.view.hideSidebarCount).toBe(1);
+
+        harness.player.playlist.push({ filename: queued.url });
+        harness.controller.onEndFile();
+        expect(harness.player.opened).toEqual([]);
+
+        harness.player.path = queued.url;
+        harness.controller.onFileLoaded();
+        harness.clock.runTimeout(CONFIG.resumeSeekDelayMs);
+
+        expect(harness.player.titles).toEqual(["Queued title"]);
+        expect(harness.player.seeks).toEqual([24]);
+    });
+
     test("ignores stale autoplay and segment responses", async () => {
         const harness = createHarness();
         const staleAutoplay = deferred<AutoplayResult | null>();
@@ -275,10 +299,12 @@ class FakePlayer implements Player {
     selection: TrackSelection = { audioStreamIndex: 1, subtitleStreamIndex: null };
     replacements: PlaybackHandoff[] = [];
     nextLoads: { handoff: PlaybackHandoff; title: string }[] = [];
+    appendLoads: { handoff: PlaybackHandoff; title: string }[] = [];
     removed: number[] = [];
     titles: string[] = [];
     seeks: number[] = [];
     subtitles: string[] = [];
+    appliedSelections: string[] = [];
     opened: string[] = [];
     pauseCount = 0;
 
@@ -297,10 +323,14 @@ class FakePlayer implements Player {
     loadNext(handoff: PlaybackHandoff, title: string) {
         this.nextLoads.push({ handoff, title });
     }
+    loadAppend(handoff: PlaybackHandoff, title: string) {
+        this.appendLoads.push({ handoff, title });
+    }
     removePlaylistEntry(index: number) { this.removed.push(index); }
     setWindowTitle(title: string) { this.titles.push(title); }
     seek(seconds: number) { this.seeks.push(seconds); }
     loadExternalSubtitles(playback: PlaybackSession) { this.subtitles.push(playback.itemId); }
+    applyTrackSelection(playback: PlaybackSession) { this.appliedSelections.push(playback.itemId); }
     open(url: string) { this.opened.push(url); }
 }
 

@@ -21,8 +21,10 @@ function playbackInfo(): JellyfinPlaybackInfoResponse {
 describe("sidebar playback handoff", () => {
     test("resolves episode context and sends one typed IINA message", async () => {
         const messages: Parameters<SidebarPlaybackDependencies["send"]>[0][] = [];
+        const requestedSelections: unknown[] = [];
         const playItem = createPlayItem({
-            async fetchPlaybackInfo() {
+            async fetchPlaybackInfo(_itemId, selection) {
+                requestedSelections.push(selection);
                 return playbackInfo();
             },
             async fetchItemDetails() {
@@ -54,9 +56,20 @@ describe("sidebar playback handoff", () => {
             "episode",
             "Fallback",
             15 * TICKS_PER_SECOND,
-            { seriesId: "preferred-series", episodeIndex: 7 }
+            {
+                seriesId: "preferred-series",
+                episodeIndex: 7,
+                audioStreamIndex: 5,
+                subtitleStreamIndex: null
+            }
         );
 
+        expect(requestedSelections).toEqual([{
+            seriesId: "preferred-series",
+            episodeIndex: 7,
+            audioStreamIndex: 5,
+            subtitleStreamIndex: null
+        }]);
         expect(messages).toHaveLength(1);
         expect(messages[0]).toMatchObject({
             resumeSeconds: 15,
@@ -66,6 +79,8 @@ describe("sidebar playback handoff", () => {
                 seriesId: "preferred-series",
                 seasonId: "season-from-item",
                 episodeIndex: 7,
+                audioStreamIndex: 5,
+                subtitleStreamIndex: null,
                 runtimeTicks: 42 * TICKS_PER_SECOND,
                 userId: "user"
             }

@@ -4,9 +4,10 @@ import type {
     PlaybackHandoff
 } from "../jellyfin/types";
 import { buildJellyfinWindowTitle, buildPlaybackHandoff } from "../playback/negotiation";
+import type { PlaybackStreamSelection } from "../playback/negotiation";
 import { TICKS_PER_SECOND } from "../shared/constants";
 
-export interface PlaybackContext {
+export interface PlaybackContext extends PlaybackStreamSelection {
     seriesId?: string;
     seasonId?: string;
     episodeIndex?: number | null;
@@ -25,7 +26,10 @@ interface PlayItemMessage {
 }
 
 export interface SidebarPlaybackDependencies {
-    fetchPlaybackInfo(itemId: string): Promise<JellyfinPlaybackInfoResponse | null>;
+    fetchPlaybackInfo(
+        itemId: string,
+        selection: PlaybackStreamSelection
+    ): Promise<JellyfinPlaybackInfoResponse | null>;
     fetchItemDetails(itemId: string): Promise<JellyfinBaseItem | null>;
     getConnection(): SidebarConnection;
     getDeviceId(): string;
@@ -42,7 +46,7 @@ export function createPlayItem(dependencies: SidebarPlaybackDependencies) {
         preferredTitle: string = ""
     ): Promise<void> {
         try {
-            const playbackInfo = await dependencies.fetchPlaybackInfo(itemId);
+            const playbackInfo = await dependencies.fetchPlaybackInfo(itemId, context);
             if (!playbackInfo) {
                 throw new Error("Missing playback info");
             }
@@ -75,7 +79,9 @@ function resolvePlaybackContext(
     return {
         seriesId: preferred.seriesId || item?.SeriesId || "",
         seasonId: preferred.seasonId || item?.SeasonId || item?.ParentId || "",
-        episodeIndex: preferred.episodeIndex ?? item?.IndexNumber
+        episodeIndex: preferred.episodeIndex ?? item?.IndexNumber,
+        audioStreamIndex: preferred.audioStreamIndex,
+        subtitleStreamIndex: preferred.subtitleStreamIndex
     };
 }
 

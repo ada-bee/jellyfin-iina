@@ -2,6 +2,7 @@ import type {
     AuthUpdatedPayload,
     BackdropContextPayload,
     PlayItemPayload,
+    QueueItemPayload,
     SidebarVisibilityChangedPayload
 } from "../../jellyfin/messages";
 
@@ -196,6 +197,11 @@ event.on("iina.window-loaded", () => {
     sidebar.onMessage(MESSAGE_NAMES.PlayItem, (data: PlayItemPayload) => {
         logDebug("Jellyfin: Received playItem");
         playbackController.play(data);
+    });
+
+    sidebar.onMessage(MESSAGE_NAMES.QueueItem, (data: QueueItemPayload) => {
+        logDebug("Jellyfin: Received queueItem");
+        playbackController.queue(data);
     });
 
     sidebar.onMessage(MESSAGE_NAMES.BackdropContext, (data: BackdropContextPayload) => {

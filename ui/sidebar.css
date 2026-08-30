@@ -836,6 +836,56 @@ button {
     left: 9px;
 }
 
+.media-detail-actions {
+    display: grid;
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 8px;
+}
+
+.media-detail-action {
+    display: inline-flex;
+    height: 36px;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 12px;
+    border: .5px solid rgba(255, 255, 255, .16);
+    border-radius: 9px;
+    outline: 0;
+    font-size: 14px;
+    font-weight: 620;
+    cursor: pointer;
+    transition: background-color 140ms ease, transform 140ms ease;
+}
+
+.media-detail-action--primary {
+    border-color: rgba(255, 255, 255, .72);
+    background: rgba(255, 255, 255, .92);
+    color: rgba(0, 0, 0, .88);
+}
+
+.media-detail-action--primary:hover {
+    background: #fff;
+}
+
+.media-detail-action--secondary {
+    background: rgba(255, 255, 255, .11);
+    box-shadow: inset 0 .5px 0 rgba(255, 255, 255, .11);
+}
+
+.media-detail-action--secondary:hover {
+    background: rgba(255, 255, 255, .17);
+}
+
+.media-detail-action:active {
+    transform: scale(.98);
+}
+
+.media-detail-action:focus-visible {
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, .55);
+}
+
 .media-detail-info {
     display: flex;
     min-width: 0;
@@ -858,16 +908,6 @@ button {
     margin-top: 0;
 }
 
-.media-detail-watched {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    margin-top: 9px;
-    color: rgba(255, 255, 255, .82);
-    font-size: 13.5px;
-    font-weight: 600;
-}
-
 .media-detail-tagline {
     margin-top: 14px;
     color: rgba(255, 255, 255, .9);
@@ -882,6 +922,92 @@ button {
     color: rgba(235, 235, 245, .72);
     font-size: 14.5px;
     line-height: 1.52;
+}
+
+.media-file-info {
+    width: 100%;
+    margin-top: 22px;
+    padding-top: 16px;
+    border-top: .5px solid var(--separator);
+}
+
+.media-file-metadata {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    color: var(--secondary);
+    font-size: 13.5px;
+    line-height: 1.45;
+}
+
+.media-file-group {
+    display: grid;
+    min-width: 0;
+    grid-template-columns: 70px minmax(0, 1fr);
+    gap: 7px;
+}
+
+.media-file-group dt {
+    color: rgba(235, 235, 245, .46);
+}
+
+.media-file-group dd {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.media-file-track {
+    position: relative;
+    display: block;
+    width: 100%;
+    min-width: 0;
+    padding: 1px 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: inherit;
+    line-height: inherit;
+    text-align: left;
+}
+
+button.media-file-track {
+    padding-right: 18px;
+    cursor: pointer;
+}
+
+button.media-file-track:hover .media-file-track-title {
+    color: var(--text);
+}
+
+button.media-file-track:focus-visible {
+    text-decoration: underline;
+    text-decoration-color: rgba(255, 255, 255, .45);
+    text-underline-offset: 3px;
+}
+
+button.media-file-track[aria-pressed="true"] .media-file-track-title {
+    color: var(--text);
+}
+
+button.media-file-track[aria-pressed="true"]::after {
+    position: absolute;
+    top: 1px;
+    right: 0;
+    content: "✓";
+    color: rgba(255, 255, 255, .82);
+    font-weight: 650;
+}
+
+.media-file-track-title {
+    color: rgba(235, 235, 245, .82);
+    font-weight: 620;
+}
+
+.media-file-track-technical {
+    color: var(--secondary);
+    font-weight: 400;
 }
 
 .series-episodes {

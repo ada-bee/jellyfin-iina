@@ -4,6 +4,7 @@
     AuthUpdated: "authUpdated",
     AuthCleared: "authCleared",
     PlayItem: "playItem",
+    QueueItem: "queueItem",
     BackdropContext: "backdropContext",
     SidebarVisibilityChanged: "sidebarVisibilityChanged",
     RefreshSidebar: "refreshSidebar",
@@ -383,9 +384,11 @@
     const queryString = buildQueryString2(params);
     return `${baseUrl}/Videos/${encodeURIComponent(options.itemId)}/stream?${queryString}`;
   }
-  function buildPlaybackInfoRequest(userId, deviceProfile) {
+  function buildPlaybackInfoRequest(userId, deviceProfile, selection = {}) {
     return {
       UserId: userId,
+      AudioStreamIndex: selection.audioStreamIndex,
+      SubtitleStreamIndex: selection.subtitleStreamIndex,
       DeviceProfile: deviceProfile,
       EnableDirectPlay: true,
       EnableDirectStream: true,
@@ -414,6 +417,8 @@
     if (!url) {
       throw new Error("Jellyfin returned incomplete playback information.");
     }
+    const audioStreamIndex = options.audioStreamIndex === undefined ? mediaSource.DefaultAudioStreamIndex : options.audioStreamIndex;
+    const subtitleStreamIndex = options.subtitleStreamIndex === undefined ? mediaSource.DefaultSubtitleStreamIndex : options.subtitleStreamIndex;
     return {
       url,
       serverUrl: normalizeServerUrl(options.serverUrl),
@@ -425,9 +430,9 @@
       playSessionId,
       runtimeTicks: mediaSource.RunTimeTicks || options.runtimeTicks || 0,
       playMethod: directPlay ? "DirectPlay" : resolveTranscodingPlayMethod(mediaSource),
-      audioStreamIndex: mediaSource.DefaultAudioStreamIndex,
-      subtitleStreamIndex: mediaSource.DefaultSubtitleStreamIndex,
-      externalSubtitles: buildExternalSubtitleTracks(mediaSource, options.serverUrl, options.accessToken),
+      audioStreamIndex,
+      subtitleStreamIndex,
+      externalSubtitles: buildExternalSubtitleTracks(mediaSource, options.serverUrl, options.accessToken, subtitleStreamIndex),
       seriesId: options.seriesId,
       seasonId: options.seasonId,
       episodeIndex: options.episodeIndex
@@ -446,8 +451,8 @@
     }
     return "Transcode";
   }
-  function buildExternalSubtitleTracks(mediaSource, serverUrl, accessToken) {
-    return (mediaSource.MediaStreams || []).filter(isExternalSubtitleStream).map((stream) => buildExternalSubtitleTrack(stream, mediaSource.DefaultSubtitleStreamIndex, serverUrl, accessToken)).filter((track) => track !== null);
+  function buildExternalSubtitleTracks(mediaSource, serverUrl, accessToken, selectedStreamIndex = mediaSource.DefaultSubtitleStreamIndex) {
+    return (mediaSource.MediaStreams || []).filter(isExternalSubtitleStream).map((stream) => buildExternalSubtitleTrack(stream, selectedStreamIndex, serverUrl, accessToken)).filter((track) => track !== null);
   }
   function isExternalSubtitleStream(stream) {
     return stream.Type === "Subtitle" && stream.DeliveryMethod === "External" && typeof stream.Index === "number" && Boolean(stream.DeliveryUrl);
@@ -828,8 +833,8 @@
     const endpoint = buildItemDetailsEndpoint(state.userId, itemId, ITEM_DETAILS_FIELDS);
     return await apiRequest("GET", endpoint);
   }
-  async function fetchPlaybackInfo(itemId) {
-    return await apiRequest("POST", `/Items/${encodeURIComponent(itemId)}/PlaybackInfo`, buildPlaybackInfoRequest(state.userId, IINA_DEVICE_PROFILE));
+  async function fetchPlaybackInfo(itemId, selection = {}) {
+    return await apiRequest("POST", `/Items/${encodeURIComponent(itemId)}/PlaybackInfo`, buildPlaybackInfoRequest(state.userId, IINA_DEVICE_PROFILE, selection));
   }
 
   // src/sidebar/dom.ts
@@ -855,6 +860,8 @@
     errorState: getElement("error-state"),
     errorMessage: getElement("error-message"),
     bottomSearchLayer: getElement("bottom-search-layer"),
+    bottomDetailActions: getElement("bottom-detail-actions"),
+    bottomSearchField: getElement("bottom-search-field"),
     searchFilters: getElement("search-filters"),
     searchInput: getElement("search-input"),
     clearSearchButton: getElement("clear-search"),
@@ -1031,7 +1038,7 @@
       metadata: getMediaDetailMetadata(item, seasonCount),
       tagline: item.Taglines?.find((value) => Boolean(value?.trim()))?.trim() || "",
       overview: String(item.Overview || ""),
-      watched: item.Type === "Movie" && Boolean(item.UserData?.Played)
+      mediaFileMetadata: getMediaFileMetadata(item)
     };
   }
   function buildSearchResultsViewModel(items, filter) {
@@ -1060,8 +1067,10 @@
   }
   function getSeriesPlayLabel(item) {
     const episodeNumber = formatPaddedEpisodeNumber(item.ParentIndexNumber, item.IndexNumber);
-    const action = item.UserData?.PlaybackPositionTicks ? "Resume" : "Play";
-    return `${action} ${episodeNumber}`;
+    return `${getPlayActionLabel(item)} ${episodeNumber}`;
+  }
+  function getPlayActionLabel(item) {
+    return item.UserData?.PlaybackPositionTicks && !item.UserData.Played ? "Resume" : "Play";
   }
   function getProgressPercent(item) {
     if (!hasProgress(item)) {
@@ -1100,6 +1109,153 @@
     }
     return metadata.join(" · ");
   }
+  function getMediaFileMetadata(item) {
+    const source = item.MediaSources?.[0];
+    const streams = source?.MediaStreams || [];
+    const audioStreams = streams.filter((stream) => stream.Type === "Audio");
+    const subtitleStreams = streams.filter((stream) => stream.Type === "Subtitle");
+    const audioStreamIndex = getInitialAudioStreamIndex(audioStreams, source?.DefaultAudioStreamIndex);
+    const subtitleStreamIndex = getInitialSubtitleStreamIndex(subtitleStreams, source?.DefaultSubtitleStreamIndex);
+    const groups = [
+      buildMediaFileGroup("video", "Video", streams.filter((stream) => stream.Type === "Video").map((stream) => formatVideoStream(stream, source?.Bitrate))),
+      buildMediaFileGroup("audio", "Audio", audioStreams.map((stream) => formatAudioStream(stream, audioStreamIndex, audioStreams.length > 1))),
+      buildMediaFileGroup("subtitle", "Subtitles", subtitleStreams.map((stream) => formatSubtitleStream(stream, subtitleStreamIndex)))
+    ];
+    return groups.filter((group) => group.tracks.length > 0);
+  }
+  function buildMediaFileGroup(kind, label, tracks) {
+    return { kind, label, tracks };
+  }
+  function formatVideoStream(stream, sourceBitrate) {
+    return {
+      title: getResolutionLabel(stream.Width, stream.Height) || "Video",
+      technical: [
+        getCodecLabel(stream.Codec),
+        getBitrateLabel(stream.BitRate || sourceBitrate)
+      ].filter(Boolean).join(" · "),
+      streamIndex: null,
+      selected: false,
+      selectable: false
+    };
+  }
+  function formatAudioStream(stream, selectedIndex, hasAlternatives) {
+    return {
+      title: getLanguageLabel(stream),
+      technical: [getCodecLabel(stream.Codec), getChannelLabel(stream)].filter(Boolean).join(" "),
+      streamIndex: stream.Index ?? null,
+      selected: stream.Index === selectedIndex,
+      selectable: hasAlternatives && stream.Index !== undefined
+    };
+  }
+  function formatSubtitleStream(stream, selectedIndex) {
+    return {
+      title: getLanguageLabel(stream),
+      technical: [
+        stream.IsHearingImpaired ? "SDH" : "",
+        stream.IsForced ? "Forced" : "",
+        getCodecLabel(stream.Codec)
+      ].filter(Boolean).join(" · "),
+      streamIndex: stream.Index ?? null,
+      selected: stream.Index === selectedIndex,
+      selectable: stream.Index !== undefined
+    };
+  }
+  function getInitialAudioStreamIndex(streams, defaultIndex) {
+    return defaultIndex ?? streams.find((stream) => stream.IsDefault)?.Index ?? streams.find((stream) => stream.Index !== undefined)?.Index ?? null;
+  }
+  function getInitialSubtitleStreamIndex(streams, defaultIndex) {
+    return defaultIndex ?? streams.find((stream) => stream.IsDefault)?.Index ?? null;
+  }
+  function getResolutionLabel(width, height) {
+    if (!width || !height) {
+      return "";
+    }
+    return getResolutionClass(width, height);
+  }
+  function getResolutionClass(width, height) {
+    if (width >= 7000 || height >= 4000) {
+      return "8K";
+    }
+    if (width >= 3800 || height >= 2100) {
+      return "4K";
+    }
+    if (height >= 1400 || width >= 2500 && height >= 1300) {
+      return "1440p";
+    }
+    if (width >= 1900 || height >= 1000) {
+      return "1080p";
+    }
+    if (width >= 1200 || height >= 700) {
+      return "720p";
+    }
+    return `${height}p`;
+  }
+  function getCodecLabel(codec) {
+    const normalized = codec?.trim().toLowerCase() || "";
+    const labels = {
+      aac: "AAC",
+      ac3: "AC-3",
+      ass: "ASS",
+      dts: "DTS",
+      eac3: "E-AC-3",
+      flac: "FLAC",
+      h264: "H.264",
+      h265: "HEVC",
+      hdmv_pgs_subtitle: "PGS",
+      hevc: "HEVC",
+      mp3: "MP3",
+      opus: "Opus",
+      pgs: "PGS",
+      srt: "SRT",
+      subrip: "SRT",
+      truehd: "TrueHD",
+      webvtt: "WebVTT"
+    };
+    return labels[normalized] || normalized.toUpperCase();
+  }
+  function getBitrateLabel(bitrate) {
+    if (!bitrate || bitrate <= 0) {
+      return "";
+    }
+    const megabits = bitrate / 1e6;
+    const rounded = megabits >= 10 ? Math.round(megabits) : Math.round(megabits * 10) / 10;
+    return `${rounded} Mbps`;
+  }
+  function getChannelLabel(stream) {
+    const layout = stream.ChannelLayout?.trim().toLowerCase() || "";
+    if (layout === "mono") {
+      return "Mono";
+    }
+    if (layout === "stereo") {
+      return "Stereo";
+    }
+    if (layout) {
+      return layout;
+    }
+    const channelLabels = {
+      1: "Mono",
+      2: "Stereo",
+      6: "5.1",
+      8: "7.1"
+    };
+    return stream.Channels ? channelLabels[stream.Channels] || `${stream.Channels} ch` : "";
+  }
+  function getLanguageLabel(stream) {
+    const language = stream.Language?.trim() || "";
+    if (!language) {
+      return stream.Title?.trim() || "Unknown";
+    }
+    try {
+      return LANGUAGE_DISPLAY_NAMES?.of(language) || language.toUpperCase();
+    } catch {
+      return language.toUpperCase();
+    }
+  }
+  function createLanguageDisplayNames() {
+    const constructor = Intl.DisplayNames;
+    return constructor ? new constructor(["en"], { type: "language" }) : null;
+  }
+  var LANGUAGE_DISPLAY_NAMES = createLanguageDisplayNames();
   function getYearLabel(item) {
     const startYear = item.ProductionYear;
     if (!startYear || item.Type !== "Series") {
@@ -1601,9 +1757,13 @@
     ui.backBtn.title = `Back from ${title}`;
     const showHome = title === "Home" && state.breadcrumb.length === 0 && !state.searchQuery;
     const showSearchFilters = title === "Search Results" && Boolean(state.searchQuery);
+    const showMovieActions = state.breadcrumb[state.breadcrumb.length - 1]?.type === "movie";
     const showSectionHeader = !showHome && !showSearchFilters;
     const canGoBack = state.breadcrumb.length > 0;
     ui.searchFilters.classList.toggle("hidden", !showSearchFilters);
+    ui.bottomSearchField.classList.toggle("hidden", showMovieActions);
+    ui.bottomDetailActions.replaceChildren();
+    ui.bottomDetailActions.classList.add("hidden");
     ui.navigationLayer.classList.toggle("hidden", !showSectionHeader);
     ui.sectionHeader.classList.toggle("hidden", !showSectionHeader);
     ui.backBtn.classList.toggle("hidden", !canGoBack);
@@ -1815,9 +1975,14 @@
 
   // src/sidebar/views/details.ts
   function renderMovieDetails(item) {
-    const details = buildMediaDetails(item, buildMediaDetailsViewModel(item), item);
+    const viewModel = buildMediaDetailsViewModel(item);
+    const details = buildMediaDetails(item, viewModel, item, "", false);
     details.classList.add("movie-details");
+    if (viewModel.mediaFileMetadata.length > 0) {
+      details.appendChild(buildMediaFileInfo(viewModel.mediaFileMetadata));
+    }
     replaceContent(details);
+    renderMovieDetailActions(item);
     setBackdropDetail(item);
   }
   function renderSeriesDetails(item, seasons, selectedSeasonId, episodes, nextUpItem, episodeLoadState) {
@@ -1838,12 +2003,79 @@
     scheduleSeasonMenuLabelUpdate();
     return true;
   }
-  function buildMediaDetails(item, viewModel, playbackItem, playbackLabel = "") {
+  function buildMediaDetails(item, viewModel, playbackItem, playbackLabel = "", artworkClickable = true) {
     const details = document.createElement("article");
     details.className = "media-details";
-    details.appendChild(buildMediaDetailArtwork(item, playbackItem, playbackLabel));
+    details.appendChild(buildMediaDetailArtwork(item, playbackItem, playbackLabel, artworkClickable));
     details.appendChild(buildMediaDetailInfo(viewModel));
     return details;
+  }
+  function renderMovieDetailActions(item) {
+    const play = document.createElement("button");
+    play.className = "media-detail-action media-detail-action--primary";
+    play.type = "button";
+    applyDetailPlaybackContext(play, item);
+    const playLabel = getPlayActionLabel(item);
+    play.setAttribute("aria-label", `${playLabel} ${String(item.Name || "movie")}`);
+    play.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M4.5 2.8c0-.6.7-.9 1.2-.6l6 4c.4.3.4.9 0 1.2l-6 4c-.5.3-1.2 0-1.2-.6v-8Z" fill="currentColor"/></svg><span>${playLabel}</span>`;
+    const queue = document.createElement("button");
+    queue.className = "media-detail-action media-detail-action--secondary";
+    queue.type = "button";
+    applyDetailQueueContext(queue, item);
+    queue.setAttribute("aria-label", `Queue ${String(item.Name || "movie")}`);
+    queue.innerHTML = '<svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true"><path d="M2.2 4h7.2M2.2 7.5h7.2M2.2 11h4.6M11.7 8.8v4.4M9.5 11h4.4" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/></svg><span>Queue</span>';
+    ui.bottomDetailActions.replaceChildren(play, queue);
+    ui.bottomDetailActions.classList.remove("hidden");
+  }
+  function buildMediaFileInfo(groups) {
+    const section = document.createElement("section");
+    section.className = "media-file-info";
+    section.setAttribute("aria-label", "Media file");
+    const list = document.createElement("dl");
+    list.className = "media-file-metadata";
+    groups.forEach((group) => list.appendChild(buildMediaFileGroup2(group)));
+    section.appendChild(list);
+    return section;
+  }
+  function buildMediaFileGroup2(group) {
+    const row = document.createElement("div");
+    row.className = "media-file-group";
+    const label = document.createElement("dt");
+    label.textContent = `${group.label}:`;
+    const tracks = document.createElement("dd");
+    group.tracks.forEach((track) => tracks.appendChild(buildMediaFileTrack(group.kind, track)));
+    row.append(label, tracks);
+    return row;
+  }
+  function buildMediaFileTrack(kind, track) {
+    const element = document.createElement(track.selectable ? "button" : "div");
+    element.className = "media-file-track";
+    if (element instanceof HTMLButtonElement) {
+      element.type = "button";
+      element.dataset.mediaTrack = kind;
+      element.dataset.streamIndex = String(track.streamIndex);
+      element.setAttribute("aria-pressed", String(track.selected));
+      element.setAttribute("data-clickable", "");
+      element.addEventListener("click", () => selectMediaFileTrack(element, kind));
+    }
+    const title = document.createElement("span");
+    title.className = "media-file-track-title";
+    title.textContent = track.title;
+    element.appendChild(title);
+    if (track.technical) {
+      const technical = document.createElement("span");
+      technical.className = "media-file-track-technical";
+      technical.textContent = ` · ${track.technical}`;
+      element.appendChild(technical);
+    }
+    return element;
+  }
+  function selectMediaFileTrack(selected, kind) {
+    const deselect = kind === "subtitle" && selected.getAttribute("aria-pressed") === "true";
+    selected.closest("dd")?.querySelectorAll("[data-media-track]").forEach((track) => track.setAttribute("aria-pressed", "false"));
+    if (!deselect) {
+      selected.setAttribute("aria-pressed", "true");
+    }
   }
   function buildMediaDetailInfo(viewModel) {
     const info = document.createElement("div");
@@ -1853,9 +2085,6 @@
       metadata.className = "media-detail-meta";
       metadata.textContent = viewModel.metadata;
       info.appendChild(metadata);
-    }
-    if (viewModel.watched) {
-      info.appendChild(buildMediaDetailWatchedState());
     }
     appendMediaDetailCopy(info, viewModel);
     return info;
@@ -1874,14 +2103,14 @@
       container.appendChild(overview);
     }
   }
-  function buildMediaDetailArtwork(item, playbackItem, playbackLabel) {
-    const artwork = buildMediaDetailArtworkContainer(item, playbackItem, playbackLabel);
+  function buildMediaDetailArtwork(item, playbackItem, playbackLabel, clickable) {
+    const artwork = buildMediaDetailArtworkContainer(item, playbackItem, playbackLabel, clickable);
     artwork.appendChild(buildMediaDetailImage(item));
     appendMediaDetailPlaybackState(artwork, playbackItem);
     return artwork;
   }
-  function buildMediaDetailArtworkContainer(item, playbackItem, playbackLabel) {
-    if (!playbackItem) {
+  function buildMediaDetailArtworkContainer(item, playbackItem, playbackLabel, clickable) {
+    if (!playbackItem || !clickable) {
       const artwork2 = document.createElement("div");
       artwork2.className = "media-detail-artwork";
       return artwork2;
@@ -1914,15 +2143,16 @@
       artwork.appendChild(buildWatchedIndicator());
     }
   }
-  function buildMediaDetailWatchedState() {
-    const watched = document.createElement("div");
-    watched.className = "media-detail-watched";
-    watched.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="m3 7.2 2.5 2.5L11.2 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Watched</span>';
-    return watched;
-  }
   function applyDetailPlaybackContext(element, item) {
-    const resumeTicks = item.UserData?.Played ? 0 : item.UserData?.PlaybackPositionTicks || 0;
     element.dataset.detailPlay = "";
+    applyDetailActionContext(element, item);
+  }
+  function applyDetailQueueContext(element, item) {
+    element.dataset.detailQueue = "";
+    applyDetailActionContext(element, item);
+  }
+  function applyDetailActionContext(element, item) {
+    const resumeTicks = item.UserData?.Played ? 0 : item.UserData?.PlaybackPositionTicks || 0;
     element.dataset.id = item.Id || "";
     element.dataset.name = String(item.Name || "Untitled");
     element.dataset.resume = String(resumeTicks);
@@ -2280,7 +2510,7 @@
   function createPlayItem(dependencies) {
     return async function playItem(itemId, name, resumePositionTicks = 0, context = {}, preferredTitle = "") {
       try {
-        const playbackInfo = await dependencies.fetchPlaybackInfo(itemId);
+        const playbackInfo = await dependencies.fetchPlaybackInfo(itemId, context);
         if (!playbackInfo) {
           throw new Error("Missing playback info");
         }
@@ -2309,7 +2539,9 @@
     return {
       seriesId: preferred.seriesId || item?.SeriesId || "",
       seasonId: preferred.seasonId || item?.SeasonId || item?.ParentId || "",
-      episodeIndex: preferred.episodeIndex ?? item?.IndexNumber
+      episodeIndex: preferred.episodeIndex ?? item?.IndexNumber,
+      audioStreamIndex: preferred.audioStreamIndex,
+      subtitleStreamIndex: preferred.subtitleStreamIndex
     };
   }
   function toResumeSeconds(resumePositionTicks) {
@@ -2330,6 +2562,21 @@
     reportError: (error) => {
       console.error("Failed to get playback info:", error);
       showError(error instanceof Error ? error.message : "Unable to start playback.");
+    }
+  });
+  var queueItem = createPlayItem({
+    fetchPlaybackInfo,
+    fetchItemDetails,
+    getConnection: () => ({
+      serverUrl: state.serverUrl,
+      accessToken: state.accessToken,
+      userId: state.userId
+    }),
+    getDeviceId,
+    send: (message) => iina.postMessage(MESSAGE_NAMES.QueueItem, message),
+    reportError: (error) => {
+      console.error("Failed to get queue item playback info:", error);
+      showError(error instanceof Error ? error.message : "Unable to queue this item.");
     }
   });
 
@@ -3283,6 +3530,7 @@
       }
     });
     ui.clearSearchButton.addEventListener("click", handleClearSearch);
+    ui.bottomDetailActions.addEventListener("click", handleContentClick);
     ui.content.addEventListener("click", handleContentClick);
     ui.content.addEventListener("keydown", handleContentKeydown);
     ui.content.addEventListener("error", handleContentError, true);
@@ -3347,6 +3595,9 @@
   }
   function handleContentClick(event) {
     const target = event.target;
+    if (handleDetailQueueClick(target)) {
+      return;
+    }
     if (handleDetailPlayClick(target)) {
       return;
     }
@@ -3363,6 +3614,17 @@
     }
     handleListCardSelection(card);
   }
+  function handleDetailQueueClick(target) {
+    const button = target?.closest("[data-detail-queue]");
+    if (!button) {
+      return false;
+    }
+    const id = button.dataset.id || "";
+    if (id) {
+      queueItem(id, button.dataset.name || "Video", Number.parseInt(button.dataset.resume || "0", 10) || 0, getDetailPlaybackContext(button));
+    }
+    return true;
+  }
   function handleDetailPlayClick(target) {
     const button = target?.closest("[data-detail-play]");
     if (!button) {
@@ -3375,11 +3637,26 @@
     return true;
   }
   function getDetailPlaybackContext(button) {
+    const details = button.closest(".movie-details") || ui.content.querySelector(".movie-details");
     return {
       seriesId: button.dataset.seriesId || "",
       seasonId: button.dataset.seasonId || "",
-      episodeIndex: button.dataset.episodeIndex ? Number.parseInt(button.dataset.episodeIndex, 10) : null
+      episodeIndex: button.dataset.episodeIndex ? Number.parseInt(button.dataset.episodeIndex, 10) : null,
+      audioStreamIndex: getSelectedStreamIndex(details, "audio"),
+      subtitleStreamIndex: getSelectedStreamIndex(details, "subtitle")
     };
+  }
+  function getSelectedStreamIndex(details, kind) {
+    const tracks = [...details?.querySelectorAll(`[data-media-track="${kind}"]`) || []];
+    if (tracks.length === 0) {
+      return;
+    }
+    const selected = tracks.find((track) => track.getAttribute("aria-pressed") === "true");
+    if (!selected) {
+      return null;
+    }
+    const index = Number.parseInt(selected.dataset.streamIndex || "", 10);
+    return Number.isNaN(index) ? undefined : index;
   }
   function handleHomeLibraryClick(target) {
     const link = target?.closest("[data-home-library]");

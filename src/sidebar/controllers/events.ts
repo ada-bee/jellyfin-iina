@@ -2,7 +2,7 @@ import { ui } from "../dom";
 import { setFocusedBackdropCard, setHoveredBackdropCard } from "../backdropContext";
 import { findListCard, getCardContext, handleContentError, setSearchFilter } from "../views";
 import { state, type SearchFilter } from "../store";
-import { playItem } from "../playback";
+import { playItem, queueItem, type PlaybackContext } from "../playback";
 import { setupSeasonMenu } from "../seasonMenu";
 import {
     handleBack,
@@ -46,6 +46,7 @@ export function setupEventListeners(): void {
         }
     });
     ui.clearSearchButton.addEventListener("click", handleClearSearch);
+    ui.bottomDetailActions.addEventListener("click", handleContentClick);
     ui.content.addEventListener("click", handleContentClick);
     ui.content.addEventListener("keydown", handleContentKeydown);
     ui.content.addEventListener("error", handleContentError, true);
@@ -120,6 +121,9 @@ export function setupNavigationScrollState(): void {
 
 function handleContentClick(event: MouseEvent): void {
     const target = event.target as HTMLElement | null;
+    if (handleDetailQueueClick(target)) {
+        return;
+    }
     if (handleDetailPlayClick(target)) {
         return;
     }
@@ -136,6 +140,23 @@ function handleContentClick(event: MouseEvent): void {
     }
 
     handleListCardSelection(card);
+}
+
+function handleDetailQueueClick(target: HTMLElement | null): boolean {
+    const button = target?.closest<HTMLButtonElement>("[data-detail-queue]");
+    if (!button) {
+        return false;
+    }
+    const id = button.dataset.id || "";
+    if (id) {
+        void queueItem(
+            id,
+            button.dataset.name || "Video",
+            Number.parseInt(button.dataset.resume || "0", 10) || 0,
+            getDetailPlaybackContext(button)
+        );
+    }
+    return true;
 }
 
 function handleDetailPlayClick(target: HTMLElement | null): boolean {
@@ -155,18 +176,36 @@ function handleDetailPlayClick(target: HTMLElement | null): boolean {
     return true;
 }
 
-function getDetailPlaybackContext(button: HTMLButtonElement): {
-    seriesId: string;
-    seasonId: string;
-    episodeIndex: number | null;
-} {
+function getDetailPlaybackContext(button: HTMLButtonElement): PlaybackContext {
+    const details = button.closest<HTMLElement>(".movie-details")
+        || ui.content.querySelector<HTMLElement>(".movie-details");
     return {
         seriesId: button.dataset.seriesId || "",
         seasonId: button.dataset.seasonId || "",
         episodeIndex: button.dataset.episodeIndex
             ? Number.parseInt(button.dataset.episodeIndex, 10)
-            : null
+            : null,
+        audioStreamIndex: getSelectedStreamIndex(details, "audio"),
+        subtitleStreamIndex: getSelectedStreamIndex(details, "subtitle")
     };
+}
+
+function getSelectedStreamIndex(
+    details: HTMLElement | null,
+    kind: "audio" | "subtitle"
+): number | null | undefined {
+    const tracks = [...(details?.querySelectorAll<HTMLButtonElement>(
+        `[data-media-track="${kind}"]`
+    ) || [])];
+    if (tracks.length === 0) {
+        return undefined;
+    }
+    const selected = tracks.find(track => track.getAttribute("aria-pressed") === "true");
+    if (!selected) {
+        return null;
+    }
+    const index = Number.parseInt(selected.dataset.streamIndex || "", 10);
+    return Number.isNaN(index) ? undefined : index;
 }
 
 function handleHomeLibraryClick(target: HTMLElement | null): boolean {

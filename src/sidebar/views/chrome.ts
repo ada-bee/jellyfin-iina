@@ -49,10 +49,14 @@ export function updateTitle(title: string): void {
 
     const showHome = title === "Home" && state.breadcrumb.length === 0 && !state.searchQuery;
     const showSearchFilters = title === "Search Results" && Boolean(state.searchQuery);
+    const showMovieActions = state.breadcrumb[state.breadcrumb.length - 1]?.type === "movie";
     const showSectionHeader = !showHome && !showSearchFilters;
     const canGoBack = state.breadcrumb.length > 0;
 
     ui.searchFilters.classList.toggle("hidden", !showSearchFilters);
+    ui.bottomSearchField.classList.toggle("hidden", showMovieActions);
+    ui.bottomDetailActions.replaceChildren();
+    ui.bottomDetailActions.classList.add("hidden");
     ui.navigationLayer.classList.toggle("hidden", !showSectionHeader);
     ui.sectionHeader.classList.toggle("hidden", !showSectionHeader);
     ui.backBtn.classList.toggle("hidden", !canGoBack);

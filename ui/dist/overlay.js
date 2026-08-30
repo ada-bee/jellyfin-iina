@@ -4,6 +4,7 @@
     AuthUpdated: "authUpdated",
     AuthCleared: "authCleared",
     PlayItem: "playItem",
+    QueueItem: "queueItem",
     BackdropContext: "backdropContext",
     SidebarVisibilityChanged: "sidebarVisibilityChanged",
     RefreshSidebar: "refreshSidebar",

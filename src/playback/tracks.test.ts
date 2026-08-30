@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { ExternalSubtitleTrack } from "../jellyfin/types";
 
-import { resolveJellyfinTrackSelection } from "./tracks";
+import { resolveJellyfinTrackSelection, resolveMpvTrackIds } from "./tracks";
 
 const externalSubtitle: ExternalSubtitleTrack = {
     index: 4,
@@ -64,5 +64,20 @@ describe("Jellyfin track selection", () => {
 
         expect(resolveJellyfinTrackSelection(null, [], fallback)).toEqual(fallback);
         expect(resolveJellyfinTrackSelection([], [], fallback)).toEqual(fallback);
+    });
+
+    test("maps requested Jellyfin streams back to mpv track ids", () => {
+        expect(resolveMpvTrackIds([
+            { id: 1, type: "audio", "ff-index": 2 },
+            { id: 3, type: "sub", external: true, "external-filename": externalSubtitle.url }
+        ], [externalSubtitle], {
+            audioStreamIndex: 2,
+            subtitleStreamIndex: 4
+        })).toEqual({
+            audioTrackId: 1,
+            subtitleTrackId: 3
+        });
+        expect(resolveMpvTrackIds([], [], { subtitleStreamIndex: null }).subtitleTrackId)
+            .toBeNull();
     });
 });

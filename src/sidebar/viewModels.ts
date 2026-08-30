@@ -1,4 +1,4 @@
-import type { JellyfinBaseItem } from "../jellyfin/types";
+import type { JellyfinBaseItem, JellyfinMediaStream } from "../jellyfin/types";
 
 import { TICKS_PER_MINUTE } from "../shared/constants";
 import { formatPaddedEpisodeNumber, formatRuntime } from "./viewFormatting";
@@ -54,7 +54,23 @@ export interface MediaDetailsViewModel {
     metadata: string;
     tagline: string;
     overview: string;
-    watched: boolean;
+    mediaFileMetadata: MediaFileMetadataGroup[];
+}
+
+export interface MediaFileMetadataGroup {
+    kind: MediaFileTrackKind;
+    label: string;
+    tracks: MediaFileMetadataTrack[];
+}
+
+export type MediaFileTrackKind = "video" | "audio" | "subtitle";
+
+export interface MediaFileMetadataTrack {
+    title: string;
+    technical: string;
+    streamIndex: number | null;
+    selected: boolean;
+    selectable: boolean;
 }
 
 export interface SearchResultsViewModel {
@@ -108,7 +124,7 @@ export function buildMediaDetailsViewModel(
         metadata: getMediaDetailMetadata(item, seasonCount),
         tagline: item.Taglines?.find(value => Boolean(value?.trim()))?.trim() || "",
         overview: String(item.Overview || ""),
-        watched: item.Type === "Movie" && Boolean(item.UserData?.Played)
+        mediaFileMetadata: getMediaFileMetadata(item)
     };
 }
 
@@ -148,8 +164,11 @@ export function buildCardContext(item: JellyfinBaseItem, directPlay: boolean = f
 
 export function getSeriesPlayLabel(item: JellyfinBaseItem): string {
     const episodeNumber = formatPaddedEpisodeNumber(item.ParentIndexNumber, item.IndexNumber);
-    const action = item.UserData?.PlaybackPositionTicks ? "Resume" : "Play";
-    return `${action} ${episodeNumber}`;
+    return `${getPlayActionLabel(item)} ${episodeNumber}`;
+}
+
+export function getPlayActionLabel(item: JellyfinBaseItem): "Play" | "Resume" {
+    return item.UserData?.PlaybackPositionTicks && !item.UserData.Played ? "Resume" : "Play";
 }
 
 export function getProgressPercent(item: JellyfinBaseItem): number | null {
@@ -192,6 +211,221 @@ function getMediaDetailMetadata(item: JellyfinBaseItem, seasonCount: number): st
     }
     return metadata.join(" · ");
 }
+
+function getMediaFileMetadata(item: JellyfinBaseItem): MediaFileMetadataGroup[] {
+    const source = item.MediaSources?.[0];
+    const streams = source?.MediaStreams || [];
+    const audioStreams = streams.filter(stream => stream.Type === "Audio");
+    const subtitleStreams = streams.filter(stream => stream.Type === "Subtitle");
+    const audioStreamIndex = getInitialAudioStreamIndex(audioStreams, source?.DefaultAudioStreamIndex);
+    const subtitleStreamIndex = getInitialSubtitleStreamIndex(
+        subtitleStreams,
+        source?.DefaultSubtitleStreamIndex
+    );
+    const groups = [
+        buildMediaFileGroup(
+            "video",
+            "Video",
+            streams.filter(stream => stream.Type === "Video")
+                .map(stream => formatVideoStream(stream, source?.Bitrate))
+        ),
+        buildMediaFileGroup(
+            "audio",
+            "Audio",
+            audioStreams.map(stream =>
+                formatAudioStream(stream, audioStreamIndex, audioStreams.length > 1)
+            )
+        ),
+        buildMediaFileGroup(
+            "subtitle",
+            "Subtitles",
+            subtitleStreams.map(stream => formatSubtitleStream(stream, subtitleStreamIndex))
+        )
+    ];
+    return groups.filter(group => group.tracks.length > 0);
+}
+
+function buildMediaFileGroup(
+    kind: MediaFileTrackKind,
+    label: string,
+    tracks: MediaFileMetadataTrack[]
+): MediaFileMetadataGroup {
+    return { kind, label, tracks };
+}
+
+function formatVideoStream(
+    stream: JellyfinMediaStream,
+    sourceBitrate?: number | null
+): MediaFileMetadataTrack {
+    return {
+        title: getResolutionLabel(stream.Width, stream.Height) || "Video",
+        technical: [
+            getCodecLabel(stream.Codec),
+            getBitrateLabel(stream.BitRate || sourceBitrate)
+        ].filter(Boolean).join(" · "),
+        streamIndex: null,
+        selected: false,
+        selectable: false
+    };
+}
+
+function formatAudioStream(
+    stream: JellyfinMediaStream,
+    selectedIndex: number | null,
+    hasAlternatives: boolean
+): MediaFileMetadataTrack {
+    return {
+        title: getLanguageLabel(stream),
+        technical: [getCodecLabel(stream.Codec), getChannelLabel(stream)]
+            .filter(Boolean)
+            .join(" "),
+        streamIndex: stream.Index ?? null,
+        selected: stream.Index === selectedIndex,
+        selectable: hasAlternatives && stream.Index !== undefined
+    };
+}
+
+function formatSubtitleStream(
+    stream: JellyfinMediaStream,
+    selectedIndex: number | null
+): MediaFileMetadataTrack {
+    return {
+        title: getLanguageLabel(stream),
+        technical: [
+            stream.IsHearingImpaired ? "SDH" : "",
+            stream.IsForced ? "Forced" : "",
+            getCodecLabel(stream.Codec)
+        ].filter(Boolean).join(" · "),
+        streamIndex: stream.Index ?? null,
+        selected: stream.Index === selectedIndex,
+        selectable: stream.Index !== undefined
+    };
+}
+
+function getInitialAudioStreamIndex(
+    streams: JellyfinMediaStream[],
+    defaultIndex?: number | null
+): number | null {
+    return defaultIndex
+        ?? streams.find(stream => stream.IsDefault)?.Index
+        ?? streams.find(stream => stream.Index !== undefined)?.Index
+        ?? null;
+}
+
+function getInitialSubtitleStreamIndex(
+    streams: JellyfinMediaStream[],
+    defaultIndex?: number | null
+): number | null {
+    return defaultIndex ?? streams.find(stream => stream.IsDefault)?.Index ?? null;
+}
+
+function getResolutionLabel(width?: number | null, height?: number | null): string {
+    if (!width || !height) {
+        return "";
+    }
+    return getResolutionClass(width, height);
+}
+
+function getResolutionClass(width: number, height: number): string {
+    if (width >= 7000 || height >= 4000) {
+        return "8K";
+    }
+    if (width >= 3800 || height >= 2100) {
+        return "4K";
+    }
+    if (height >= 1400 || (width >= 2500 && height >= 1300)) {
+        return "1440p";
+    }
+    if (width >= 1900 || height >= 1000) {
+        return "1080p";
+    }
+    if (width >= 1200 || height >= 700) {
+        return "720p";
+    }
+    return `${height}p`;
+}
+
+function getCodecLabel(codec?: string | null): string {
+    const normalized = codec?.trim().toLowerCase() || "";
+    const labels: Record<string, string> = {
+        aac: "AAC",
+        ac3: "AC-3",
+        ass: "ASS",
+        dts: "DTS",
+        eac3: "E-AC-3",
+        flac: "FLAC",
+        h264: "H.264",
+        h265: "HEVC",
+        hdmv_pgs_subtitle: "PGS",
+        hevc: "HEVC",
+        mp3: "MP3",
+        opus: "Opus",
+        pgs: "PGS",
+        srt: "SRT",
+        subrip: "SRT",
+        truehd: "TrueHD",
+        webvtt: "WebVTT"
+    };
+    return labels[normalized] || normalized.toUpperCase();
+}
+
+function getBitrateLabel(bitrate?: number | null): string {
+    if (!bitrate || bitrate <= 0) {
+        return "";
+    }
+    const megabits = bitrate / 1_000_000;
+    const rounded = megabits >= 10 ? Math.round(megabits) : Math.round(megabits * 10) / 10;
+    return `${rounded} Mbps`;
+}
+
+function getChannelLabel(stream: JellyfinMediaStream): string {
+    const layout = stream.ChannelLayout?.trim().toLowerCase() || "";
+    if (layout === "mono") {
+        return "Mono";
+    }
+    if (layout === "stereo") {
+        return "Stereo";
+    }
+    if (layout) {
+        return layout;
+    }
+    const channelLabels: Record<number, string> = {
+        1: "Mono",
+        2: "Stereo",
+        6: "5.1",
+        8: "7.1"
+    };
+    return stream.Channels ? channelLabels[stream.Channels] || `${stream.Channels} ch` : "";
+}
+
+function getLanguageLabel(stream: JellyfinMediaStream): string {
+    const language = stream.Language?.trim() || "";
+    if (!language) {
+        return stream.Title?.trim() || "Unknown";
+    }
+    try {
+        return LANGUAGE_DISPLAY_NAMES?.of(language) || language.toUpperCase();
+    } catch {
+        return language.toUpperCase();
+    }
+}
+
+interface LanguageDisplayNames {
+    of(language: string): string | undefined;
+}
+
+interface LanguageDisplayNamesConstructor {
+    new(locales: string[], options: { type: "language" }): LanguageDisplayNames;
+}
+
+function createLanguageDisplayNames(): LanguageDisplayNames | null {
+    const constructor = (Intl as unknown as {
+        DisplayNames?: LanguageDisplayNamesConstructor;
+    }).DisplayNames;
+    return constructor ? new constructor(["en"], { type: "language" }) : null;
+}
+
+const LANGUAGE_DISPLAY_NAMES = createLanguageDisplayNames();
 
 function getYearLabel(item: JellyfinBaseItem): string {
     const startYear = item.ProductionYear;

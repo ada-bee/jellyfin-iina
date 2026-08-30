@@ -69,8 +69,13 @@ describe("Jellyfin playback negotiation", () => {
     });
 
     test("sends canonical playback options in the request body", () => {
-        expect(buildPlaybackInfoRequest("user-id", IINA_DEVICE_PROFILE)).toMatchObject({
+        expect(buildPlaybackInfoRequest("user-id", IINA_DEVICE_PROFILE, {
+            audioStreamIndex: 2,
+            subtitleStreamIndex: null
+        })).toMatchObject({
             UserId: "user-id",
+            AudioStreamIndex: 2,
+            SubtitleStreamIndex: null,
             DeviceProfile: IINA_DEVICE_PROFILE,
             EnableDirectPlay: true,
             EnableDirectStream: true,

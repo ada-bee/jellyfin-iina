@@ -21,6 +21,8 @@ export const ui = {
     errorState: getElement<HTMLDivElement>("error-state"),
     errorMessage: getElement<HTMLParagraphElement>("error-message"),
     bottomSearchLayer: getElement<HTMLDivElement>("bottom-search-layer"),
+    bottomDetailActions: getElement<HTMLDivElement>("bottom-detail-actions"),
+    bottomSearchField: getElement<HTMLDivElement>("bottom-search-field"),
     searchFilters: getElement<HTMLDivElement>("search-filters"),
     searchInput: getElement<HTMLInputElement>("search-input"),
     clearSearchButton: getElement<HTMLButtonElement>("clear-search"),

@@ -1,12 +1,18 @@
 import type { ExternalSubtitleTrack } from "../jellyfin/types";
 
 export interface MpvTrackInfo {
+    id?: number;
     type?: "audio" | "video" | "sub";
     selected?: boolean;
     external?: boolean;
     "main-selection"?: number;
     "ff-index"?: number;
     "external-filename"?: string;
+}
+
+export interface MpvTrackIds {
+    audioTrackId?: number | null;
+    subtitleTrackId?: number | null;
 }
 
 export interface JellyfinTrackSelection {
@@ -29,6 +35,48 @@ export function resolveJellyfinTrackSelection(
         audioStreamIndex: getInternalStreamIndex(audioTrack),
         subtitleStreamIndex: getSubtitleStreamIndex(subtitleTrack, externalSubtitles)
     };
+}
+
+export function resolveMpvTrackIds(
+    trackList: MpvTrackInfo[],
+    externalSubtitles: ExternalSubtitleTrack[],
+    selection: {
+        audioStreamIndex?: number | null;
+        subtitleStreamIndex?: number | null;
+    }
+): MpvTrackIds {
+    return {
+        audioTrackId: findMpvTrackId(
+            trackList,
+            "audio",
+            selection.audioStreamIndex,
+            externalSubtitles
+        ),
+        subtitleTrackId: findMpvTrackId(
+            trackList,
+            "sub",
+            selection.subtitleStreamIndex,
+            externalSubtitles
+        )
+    };
+}
+
+function findMpvTrackId(
+    trackList: MpvTrackInfo[],
+    type: "audio" | "sub",
+    streamIndex: number | null | undefined,
+    externalSubtitles: ExternalSubtitleTrack[]
+): number | null | undefined {
+    if (streamIndex === undefined || streamIndex === null) {
+        return streamIndex;
+    }
+    const externalUrl = externalSubtitles.find(track => track.index === streamIndex)?.url;
+    const track = trackList.find(candidate => (
+        candidate.type === type
+        && (candidate["ff-index"] === streamIndex
+            || Boolean(externalUrl && candidate["external-filename"] === externalUrl))
+    ));
+    return typeof track?.id === "number" ? track.id : undefined;
 }
 
 function findPrimarySelectedTrack(

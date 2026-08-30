@@ -8,7 +8,11 @@ import type {
 import type { PlaybackHandoff } from "../../jellyfin/types";
 
 import { orderExternalSubtitleTracks, buildSubtitleFlags } from "../../playback/subtitles";
-import { resolveJellyfinTrackSelection, type MpvTrackInfo } from "../../playback/tracks";
+import {
+    resolveJellyfinTrackSelection,
+    resolveMpvTrackIds,
+    type MpvTrackInfo
+} from "../../playback/tracks";
 import { sanitizeMediaTitle } from "../../playback/title";
 
 export class IinaPlayer implements Player {
@@ -63,6 +67,10 @@ export class IinaPlayer implements Player {
         iina.mpv.command("loadfile", buildLoadArguments(handoff.url, "insert-next", title));
     }
 
+    loadAppend(handoff: PlaybackHandoff, title: string): void {
+        iina.mpv.command("loadfile", buildLoadArguments(handoff.url, "append", title));
+    }
+
     removePlaylistEntry(index: number): void {
         iina.mpv.command("playlist-remove", [String(index)]);
     }
@@ -109,12 +117,33 @@ export class IinaPlayer implements Player {
         }
     }
 
+    applyTrackSelection(playback: PlaybackSession): void {
+        const trackList = iina.mpv.getNative<MpvTrackInfo[]>("track-list");
+        const trackIds = resolveMpvTrackIds(
+            Array.isArray(trackList) ? trackList : [],
+            playback.externalSubtitles,
+            playback
+        );
+        applyMpvTrackId("aid", trackIds.audioTrackId);
+        applyMpvTrackId("sid", trackIds.subtitleTrackId);
+    }
+
     open(url: string): void {
         iina.core.open(url);
     }
 }
 
-function buildLoadArguments(url: string, mode: "replace" | "insert-next", title: string): string[] {
+function applyMpvTrackId(property: "aid" | "sid", trackId: number | null | undefined): void {
+    if (trackId !== undefined) {
+        iina.mpv.set(property, trackId === null ? "no" : trackId);
+    }
+}
+
+function buildLoadArguments(
+    url: string,
+    mode: "replace" | "insert-next" | "append",
+    title: string
+): string[] {
     if (!title) {
         return [url, mode];
     }

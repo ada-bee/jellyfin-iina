@@ -33,10 +33,12 @@ export interface Player {
     getTrackSelection(playback: PlaybackSession): TrackSelection;
     loadReplacement(handoff: PlaybackHandoff, title: string): void;
     loadNext(handoff: PlaybackHandoff, title: string): void;
+    loadAppend(handoff: PlaybackHandoff, title: string): void;
     removePlaylistEntry(index: number): void;
     setWindowTitle(title: string): void;
     seek(seconds: number): void;
     loadExternalSubtitles(playback: PlaybackSession): void;
+    applyTrackSelection(playback: PlaybackSession): void;
     open(url: string): void;
 }
 
