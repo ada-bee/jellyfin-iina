@@ -64,7 +64,7 @@ export function buildSearchEndpoint(userId: string, query: string): string {
         `&userId=${encodeURIComponent(userId)}` +
         "&includeItemTypes=Movie,Series,Episode" +
         `&fields=${FIELDS_SEARCH}` +
-        "&recursive=true&limit=20";
+        "&recursive=true&limit=60";
 }
 
 export function buildSeasonsEndpoint(userId: string, seriesId: string): string {

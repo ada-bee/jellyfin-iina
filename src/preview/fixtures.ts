@@ -152,12 +152,9 @@ export const recentSeries = [
 ];
 
 export const searchResults = [
-    series("series-north-station", "North Station", 2025, 4, 10),
-    episode("the-plan", "The Plan", "North Station", 1, 5, 48, 63),
-    movie("distant-signal", "A Distant Signal", 2019, 104, 100),
-    movie("signal-fire", "Signal Fire", 2025, 112),
-    series("series-orbital", "Orbital", 2024, 7, 8),
-    episode("relay", "Relay", "Orbital", 1, 7, 44)
+    ...recentMovies.slice(0, 7),
+    ...recentSeries.slice(0, 7),
+    ...recentEpisodes.slice(0, 7)
 ];
 
 export const seasons = [

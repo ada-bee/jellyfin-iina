@@ -376,21 +376,41 @@ describe("sidebar view models", () => {
             ]);
     });
 
-    test("groups filtered search results without changing their order", () => {
+    test("groups all search results by type and caps each section at six", () => {
         const items: JellyfinBaseItem[] = [
-            { Id: "episode", Type: "Episode" },
-            { Id: "series", Type: "Series" },
-            { Id: "movie", Type: "Movie" },
+            ...Array.from({ length: 8 }, (_, index) => ({
+                Id: `episode-${index}`,
+                Type: "Episode" as const
+            })),
+            ...Array.from({ length: 8 }, (_, index) => ({
+                Id: `movie-${index}`,
+                Type: "Movie" as const
+            })),
+            ...Array.from({ length: 8 }, (_, index) => ({
+                Id: `series-${index}`,
+                Type: "Series" as const
+            })),
             { Id: "audio", Type: "Audio" }
         ];
 
         const all = buildSearchResultsViewModel(items, "all");
-        expect(all.posterItems.map(item => item.Id)).toEqual(["series", "movie"]);
-        expect(all.remainingItems.map(item => item.Id)).toEqual(["episode", "audio"]);
-        expect(all.visibleItems).not.toBe(items);
+        expect(all.sections.map(section => ({
+            filter: section.filter,
+            count: section.items.length
+        }))).toEqual([
+            { filter: "movie", count: 6 },
+            { filter: "series", count: 6 },
+            { filter: "episode", count: 6 }
+        ]);
+        expect(all.visibleItems.map(item => item.Id)).toEqual([
+            ...Array.from({ length: 6 }, (_, index) => `movie-${index}`),
+            ...Array.from({ length: 6 }, (_, index) => `series-${index}`),
+            ...Array.from({ length: 6 }, (_, index) => `episode-${index}`)
+        ]);
 
         const episodes = buildSearchResultsViewModel(items, "episode");
-        expect(episodes.visibleItems.map(item => item.Id)).toEqual(["episode"]);
+        expect(episodes.sections.map(section => section.filter)).toEqual(["episode"]);
+        expect(episodes.visibleItems).toHaveLength(8);
         expect(episodes.emptyMessage).toBe("No Episodes Found");
     });
 

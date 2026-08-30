@@ -75,6 +75,12 @@ export function setupFixturePreview(): void {
 }
 
 function handleContentClick(event: MouseEvent): void {
+    const searchSectionFilter = (event.target as HTMLElement | null)
+        ?.closest<HTMLButtonElement>("[data-search-section-filter]")?.dataset.searchSectionFilter;
+    if (isSearchFilter(searchSectionFilter)) {
+        setSearchFilter(searchSectionFilter);
+        return;
+    }
     const libraryLink = (event.target as HTMLElement | null)
         ?.closest<HTMLButtonElement>("[data-home-library]");
     if (libraryLink) {

@@ -109,6 +109,9 @@ function handleContentClick(event: MouseEvent): void {
     if (handleHomeLibraryClick(target)) {
         return;
     }
+    if (handleSearchSectionFilterClick(target)) {
+        return;
+    }
     const card = findListCard(event.target);
     if (!card || !ui.content.contains(card)) {
         return;
@@ -206,9 +209,23 @@ function handleSearchFilterClick(event: MouseEvent): void {
     const button = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>("[data-search-filter]");
     const filter = button?.dataset.searchFilter;
     if (isSearchFilter(filter)) {
-        updateSearchFilterRoute(filter);
-        setSearchFilter(filter);
+        applySearchFilter(filter);
     }
+}
+
+function handleSearchSectionFilterClick(target: HTMLElement | null): boolean {
+    const filter = target?.closest<HTMLButtonElement>("[data-search-section-filter]")
+        ?.dataset.searchSectionFilter;
+    if (!isSearchFilter(filter)) {
+        return false;
+    }
+    applySearchFilter(filter);
+    return true;
+}
+
+function applySearchFilter(filter: SearchFilter): void {
+    updateSearchFilterRoute(filter);
+    setSearchFilter(filter);
 }
 
 function isSearchFilter(value: string | undefined): value is SearchFilter {

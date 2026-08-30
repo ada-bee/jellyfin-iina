@@ -160,7 +160,12 @@ export function getLibraryPosterOptions(): ListCardOptions {
 
 export function getSearchCardOptions(item: JellyfinBaseItem): ListCardOptions {
     if (item.Type === "Episode") {
-        return { showSeriesName: true, showEpisodeNumber: true, useEpisodeThumbnail: true };
+        return {
+            homeThumbnail: true,
+            showSeriesName: true,
+            showEpisodeNumber: true,
+            useEpisodeThumbnail: true
+        };
     }
     if (item.Type === "Movie" || item.Type === "Series") {
         return getLibraryPosterOptions();

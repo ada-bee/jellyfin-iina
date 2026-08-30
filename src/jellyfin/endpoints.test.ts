@@ -42,5 +42,6 @@ describe("Jellyfin 12 item endpoints", () => {
 
         expect(url.pathname).toBe("/Items");
         expect(url.searchParams.get("searchTerm")).toBe("show & film");
+        expect(url.searchParams.get("limit")).toBe("60");
     });
 });

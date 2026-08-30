@@ -675,7 +675,7 @@
     return `/Shows/NextUp?userId=${encodeURIComponent(userId)}&limit=10&fields=${FIELDS_HOME_ITEMS}`;
   }
   function buildSearchEndpoint(userId, query) {
-    return `/Items?searchTerm=${encodeURIComponent(query)}` + `&userId=${encodeURIComponent(userId)}` + "&includeItemTypes=Movie,Series,Episode" + `&fields=${FIELDS_SEARCH}` + "&recursive=true&limit=20";
+    return `/Items?searchTerm=${encodeURIComponent(query)}` + `&userId=${encodeURIComponent(userId)}` + "&includeItemTypes=Movie,Series,Episode" + `&fields=${FIELDS_SEARCH}` + "&recursive=true&limit=60";
   }
   function buildSeasonsEndpoint(userId, seriesId) {
     return `/Shows/${encodeURIComponent(seriesId)}/Seasons?userId=${encodeURIComponent(userId)}` + `&fields=${FIELDS_SEASONS}`;
@@ -1050,14 +1050,26 @@
     };
   }
   function buildSearchResultsViewModel(items, filter) {
-    const filterType = filter === "all" ? "" : filter.charAt(0).toUpperCase() + filter.slice(1);
-    const visibleItems = filterType ? items.filter((item) => item.Type === filterType) : [...items];
+    const sections = getSearchResultSections(items).filter((section) => filter === "all" || section.filter === filter).map((section) => ({
+      ...section,
+      items: filter === "all" ? section.items.slice(0, 6) : section.items
+    })).filter((section) => section.items.length > 0);
+    const visibleItems = sections.flatMap((section) => section.items);
     return {
       visibleItems,
-      posterItems: visibleItems.filter((item) => item.Type === "Movie" || item.Type === "Series"),
-      remainingItems: visibleItems.filter((item) => item.Type !== "Movie" && item.Type !== "Series"),
+      sections,
       emptyMessage: filter === "all" ? "No Results" : `No ${getFilterLabel(filter)} Found`
     };
+  }
+  function getSearchResultSections(items) {
+    return [
+      buildSearchResultSection(items, "movie", "Movies", "Movie"),
+      buildSearchResultSection(items, "series", "Series", "Series"),
+      buildSearchResultSection(items, "episode", "Episodes", "Episode")
+    ];
+  }
+  function buildSearchResultSection(items, filter, label, itemType) {
+    return { filter, label, items: items.filter((item) => item.Type === itemType) };
   }
   function buildCardContext(item, directPlay = false) {
     return {
@@ -1590,7 +1602,12 @@
   }
   function getSearchCardOptions(item) {
     if (item.Type === "Episode") {
-      return { showSeriesName: true, showEpisodeNumber: true, useEpisodeThumbnail: true };
+      return {
+        homeThumbnail: true,
+        showSeriesName: true,
+        showEpisodeNumber: true,
+        useEpisodeThumbnail: true
+      };
     }
     if (item.Type === "Movie" || item.Type === "Series") {
       return getLibraryPosterOptions();
@@ -2591,20 +2608,38 @@
     }
     const results = document.createElement("div");
     results.className = "search-results";
-    if (viewModel.posterItems.length > 0) {
-      results.appendChild(buildSearchResultGroup(viewModel.posterItems, "library-poster-grid"));
-    }
-    if (viewModel.remainingItems.length > 0) {
-      results.appendChild(buildSearchResultGroup(viewModel.remainingItems, "media-list"));
-    }
+    viewModel.sections.forEach((section) => results.appendChild(buildSearchResultSection2(section, state.searchFilter === "all")));
     replaceContent(results);
     setBackdropSlideshow(viewModel.visibleItems);
   }
-  function buildSearchResultGroup(items, className) {
-    const group = document.createElement("div");
-    group.className = className;
-    items.forEach((item) => group.appendChild(buildListCardElement(item, getSearchCardOptions(item))));
-    return group;
+  function buildSearchResultSection2(sectionModel, headingIsLink) {
+    const section = document.createElement("section");
+    section.className = `search-result-section search-result-section--${sectionModel.filter}`;
+    section.appendChild(buildSearchResultHeading(sectionModel, headingIsLink));
+    const grid = document.createElement("div");
+    grid.className = sectionModel.filter === "episode" ? "search-episode-grid" : "library-poster-grid";
+    sectionModel.items.forEach((item) => grid.appendChild(buildListCardElement(item, getSearchCardOptions(item))));
+    section.appendChild(grid);
+    return section;
+  }
+  function buildSearchResultHeading(section, isLink) {
+    const heading = document.createElement("h3");
+    heading.className = "search-result-heading";
+    if (!isLink) {
+      heading.textContent = section.label;
+      return heading;
+    }
+    const button = document.createElement("button");
+    button.className = "search-result-heading-link";
+    button.type = "button";
+    button.dataset.searchSectionFilter = section.filter;
+    button.setAttribute("data-clickable", "");
+    button.setAttribute("aria-label", `Show all ${section.label}`);
+    const label = document.createElement("span");
+    label.textContent = section.label;
+    button.append(label, buildDisclosureChevron());
+    heading.appendChild(button);
+    return heading;
   }
   // src/sidebar/playbackService.ts
   function createPlayItem(dependencies) {
@@ -3732,6 +3767,9 @@
     if (handleHomeLibraryClick(target)) {
       return;
     }
+    if (handleSearchSectionFilterClick(target)) {
+      return;
+    }
     const card = findListCard(event.target);
     if (!card || !ui.content.contains(card)) {
       return;
@@ -3798,9 +3836,20 @@
     const button = event.target?.closest("[data-search-filter]");
     const filter = button?.dataset.searchFilter;
     if (isSearchFilter(filter)) {
-      updateSearchFilterRoute(filter);
-      setSearchFilter(filter);
+      applySearchFilter(filter);
     }
+  }
+  function handleSearchSectionFilterClick(target) {
+    const filter = target?.closest("[data-search-section-filter]")?.dataset.searchSectionFilter;
+    if (!isSearchFilter(filter)) {
+      return false;
+    }
+    applySearchFilter(filter);
+    return true;
+  }
+  function applySearchFilter(filter) {
+    updateSearchFilterRoute(filter);
+    setSearchFilter(filter);
   }
   function isSearchFilter(value) {
     return value === "all" || value === "movie" || value === "series" || value === "episode";

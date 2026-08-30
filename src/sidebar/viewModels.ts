@@ -85,9 +85,14 @@ export interface MediaFileMetadataTrack {
 
 export interface SearchResultsViewModel {
     visibleItems: JellyfinBaseItem[];
-    posterItems: JellyfinBaseItem[];
-    remainingItems: JellyfinBaseItem[];
+    sections: SearchResultSection[];
     emptyMessage: string;
+}
+
+export interface SearchResultSection {
+    filter: Exclude<SearchFilter, "all">;
+    label: string;
+    items: JellyfinBaseItem[];
 }
 
 interface CardCopy {
@@ -142,19 +147,37 @@ export function buildSearchResultsViewModel(
     items: JellyfinBaseItem[],
     filter: SearchFilter
 ): SearchResultsViewModel {
-    const filterType = filter === "all"
-        ? ""
-        : filter.charAt(0).toUpperCase() + filter.slice(1);
-    const visibleItems = filterType
-        ? items.filter(item => item.Type === filterType)
-        : [...items];
+    const sections = getSearchResultSections(items)
+        .filter(section => filter === "all" || section.filter === filter)
+        .map(section => ({
+            ...section,
+            items: filter === "all" ? section.items.slice(0, 6) : section.items
+        }))
+        .filter(section => section.items.length > 0);
+    const visibleItems = sections.flatMap(section => section.items);
 
     return {
         visibleItems,
-        posterItems: visibleItems.filter(item => item.Type === "Movie" || item.Type === "Series"),
-        remainingItems: visibleItems.filter(item => item.Type !== "Movie" && item.Type !== "Series"),
+        sections,
         emptyMessage: filter === "all" ? "No Results" : `No ${getFilterLabel(filter)} Found`
     };
+}
+
+function getSearchResultSections(items: JellyfinBaseItem[]): SearchResultSection[] {
+    return [
+        buildSearchResultSection(items, "movie", "Movies", "Movie"),
+        buildSearchResultSection(items, "series", "Series", "Series"),
+        buildSearchResultSection(items, "episode", "Episodes", "Episode")
+    ];
+}
+
+function buildSearchResultSection(
+    items: JellyfinBaseItem[],
+    filter: SearchResultSection["filter"],
+    label: string,
+    itemType: string
+): SearchResultSection {
+    return { filter, label, items: items.filter(item => item.Type === itemType) };
 }
 
 export function buildCardContext(item: JellyfinBaseItem, directPlay: boolean = false): CardContext {
