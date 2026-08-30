@@ -71,14 +71,14 @@ button {
 .navigation-layer::before {
     position: absolute;
     z-index: -1;
-    inset: 0 0 -20px;
+    inset: 0 0 -8px;
     content: "";
     pointer-events: none;
     background: var(--chrome-glass);
     -webkit-backdrop-filter: blur(18px) saturate(150%);
     backdrop-filter: blur(18px) saturate(150%);
-    -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 68%, transparent 100%);
-    mask-image: linear-gradient(to bottom, #000 0, #000 68%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 55%, transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 0, #000 55%, transparent 100%);
 }
 
 .search-field {
