@@ -13,7 +13,6 @@ export const BUNDLE_FILES = [
 export const RUNTIME_FILES = [
     "Info.json",
     "LICENSE",
-    "assets/Jellyfin.png",
     ...BUNDLE_FILES,
     "ui/assets/jellyfin-horizontal.png",
     "ui/assets/jellyfin-icon.png",

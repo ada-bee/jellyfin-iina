@@ -4,7 +4,7 @@ export interface BackdropModeState {
     playbackPaused: boolean;
     jellyfinPlaybackActive: boolean;
     mediaPath: string;
-    splashPaths: readonly string[];
+    libraryHostUrl: string;
     jellyfinSidebarOpen: boolean;
     previewsEnabled: boolean;
 }
@@ -21,29 +21,23 @@ export function isJellyfinSidebarOpen(
     return reportedSidebar === JELLYFIN_SIDEBAR_NAME;
 }
 
-export function isJellyfinSplashPath(mediaPath: string, splashPaths: readonly string[]): boolean {
+export function isJellyfinLibraryHost(
+    mediaPath: string,
+    libraryHostUrl: string
+): boolean {
     const actualPath = normalizeFilePath(mediaPath);
-    if (!actualPath) {
+    const expectedPath = normalizeFilePath(libraryHostUrl);
+    if (!actualPath || !expectedPath) {
         return false;
     }
-    return splashPaths.some(path => matchesExpectedPath(actualPath, normalizeFilePath(path)));
-}
-
-function matchesExpectedPath(actualPath: string, expectedPath: string): boolean {
-    if (!expectedPath) {
-        return false;
-    }
-    if (!expectedPath.startsWith("~/")) {
-        return actualPath === expectedPath;
-    }
-    return actualPath === expectedPath || actualPath.endsWith(expectedPath.slice(1));
+    return actualPath === expectedPath;
 }
 
 export function resolveBackdropMode(state: BackdropModeState): BackdropMode {
     if (!state.jellyfinSidebarOpen || !state.previewsEnabled) {
         return "hidden";
     }
-    if (isJellyfinSplashPath(state.mediaPath, state.splashPaths)) {
+    if (isJellyfinLibraryHost(state.mediaPath, state.libraryHostUrl)) {
         return "browse";
     }
     if (state.jellyfinPlaybackActive && state.playbackPaused) {

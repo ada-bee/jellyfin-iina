@@ -15,15 +15,19 @@ import type {
 } from "./ports";
 import type { NormalizedSegment } from "./segments";
 
+const LIBRARY_HOST_URL =
+    "av://lavfi:color@jellyfin=c=0x202020,fps=1,scale=s=1920x1080,setsar=1";
+
 const CONFIG = {
-    splashUrl: "splash.png",
+    libraryTitle: "Jellyfin",
+    libraryHostUrl: LIBRARY_HOST_URL,
     ticksPerSecond: 10_000_000,
     resumeSeekDelayMs: 1000,
     progressReportIntervalMs: 10_000,
     playbackTickIntervalMs: 1000,
     eofWatchThresholdSeconds: 0.5,
     skipSegmentPollIntervalMs: 500,
-    isSplashPath: (path: string) => path === "splash.png"
+    isLibraryHost: (path: string) => path === LIBRARY_HOST_URL
 };
 
 describe("PlaybackController", () => {
@@ -107,7 +111,7 @@ describe("PlaybackController", () => {
         expect(harness.view.shownSkipLabels).toEqual([]);
     });
 
-    test("lets queued autoplay transition without opening the splash", async () => {
+    test("lets queued autoplay transition without opening the library", async () => {
         const harness = createHarness();
         harness.api.autoplayResults.push(Promise.resolve({
             handoff: handoff("next", true),
@@ -134,9 +138,13 @@ describe("PlaybackController", () => {
         harness.clock.runInterval(CONFIG.playbackTickIntervalMs);
         await settle();
 
-        expect(harness.player.opened).toEqual([CONFIG.splashUrl]);
+        expect(harness.player.opened).toEqual([CONFIG.libraryHostUrl]);
+        expect(harness.player.titles).toEqual([CONFIG.libraryTitle]);
         expect(harness.view.showSidebarCount).toBe(1);
         expect(harness.api.stops).toHaveLength(1);
+
+        harness.player.path = CONFIG.libraryHostUrl;
+        harness.controller.onFileLoaded();
     });
 
     test("window close stops once, keeps the last useful position, and cancels timers", async () => {
@@ -166,14 +174,32 @@ describe("PlaybackController", () => {
         expect(harness.view.clearBackdropCount).toBe(1);
     });
 
-    test("does not treat an unrelated file named Jellyfin.png as the placeholder", () => {
+    test("does not treat an unrelated stream as the library host", () => {
         const harness = createHarness();
-        harness.player.path = "/tmp/Jellyfin.png";
+        harness.player.path = "https://media.example.test/video.mp4";
 
         harness.controller.onFileLoaded();
 
+        expect(harness.player.pauseCount).toBe(0);
         expect(harness.view.showSidebarCount).toBe(0);
         expect(harness.view.refreshSidebarCount).toBe(0);
+    });
+
+    test("recognizes the library host and keeps its synthetic surface paused", () => {
+        const harness = createHarness();
+        harness.player.path = CONFIG.libraryHostUrl;
+
+        harness.controller.onFileLoaded();
+
+        expect(harness.player.titles).toEqual([CONFIG.libraryTitle]);
+        expect(harness.player.pauseCount).toBe(1);
+        expect(harness.view.showSidebarCount).toBe(1);
+        expect(harness.view.refreshSidebarCount).toBe(1);
+
+        harness.player.paused = false;
+        harness.controller.onPauseChanged();
+
+        expect(harness.player.pauseCount).toBe(2);
     });
 
     test("shows and executes skip actions at the segment boundary", async () => {
@@ -254,12 +280,17 @@ class FakePlayer implements Player {
     seeks: number[] = [];
     subtitles: string[] = [];
     opened: string[] = [];
+    pauseCount = 0;
 
     getPath() { return this.path; }
     getPositionSeconds() { return this.position; }
     getDurationSeconds() { return this.duration; }
     isPaused() { return this.paused; }
     isEofReached() { return this.eof; }
+    pause() {
+        this.paused = true;
+        this.pauseCount += 1;
+    }
     getPlaylist() { return this.playlist; }
     getTrackSelection() { return this.selection; }
     loadReplacement(handoff: PlaybackHandoff) { this.replacements.push(handoff); }

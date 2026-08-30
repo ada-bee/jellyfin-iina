@@ -80,15 +80,28 @@ export class PlaybackController {
         this.dependencies.view.hideSidebar();
     }
 
+    openLibrary(): boolean {
+        try {
+            this.dependencies.player.setWindowTitle(this.dependencies.config.libraryTitle);
+            this.dependencies.player.open(this.dependencies.config.libraryHostUrl);
+            return true;
+        } catch (error) {
+            this.logFailure("open library", error);
+            return false;
+        }
+    }
+
     onFileLoaded(): void {
         const path = this.dependencies.player.getPath();
         if (!path) {
             return;
         }
 
-        if (this.dependencies.config.isSplashPath(path)) {
-            this.dependencies.logger.debug("Jellyfin: Splash loaded, showing sidebar");
-            this.clearPlaybackState("splash loaded");
+        if (this.dependencies.config.isLibraryHost(path)) {
+            this.dependencies.logger.debug("Jellyfin: Library host loaded, showing sidebar");
+            this.dependencies.player.setWindowTitle(this.dependencies.config.libraryTitle);
+            this.clearPlaybackState("library host loaded");
+            this.pauseLibraryHost();
             this.dependencies.view.showSidebar();
             this.dependencies.view.refreshSidebar();
             return;
@@ -130,6 +143,10 @@ export class PlaybackController {
     }
 
     onPauseChanged(): void {
+        if (this.dependencies.config.isLibraryHost(this.dependencies.player.getPath())) {
+            this.pauseLibraryHost();
+            return;
+        }
         if (!this.model.active) {
             return;
         }
@@ -150,6 +167,14 @@ export class PlaybackController {
 
     onWindowClose(): void {
         this.clearPlaybackState("window close");
+    }
+
+    private pauseLibraryHost(): void {
+        if (this.dependencies.player.isPaused()) {
+            return;
+        }
+        this.dependencies.logger.debug("Jellyfin: Pausing library host");
+        this.dependencies.player.pause();
     }
 
     private startPlaybackSession(session: PlaybackSession, pending: PendingPlayback): void {
@@ -549,11 +574,7 @@ export class PlaybackController {
 
     private handleNoNextEpisode(reason: string): void {
         this.dependencies.logger.debug("Jellyfin: No next episode:", reason);
-        try {
-            this.dependencies.player.open(this.dependencies.config.splashUrl);
-        } catch (error) {
-            this.logFailure("open splash", error);
-        }
+        this.openLibrary();
         this.dependencies.view.showSidebar();
         this.dependencies.view.refreshSidebar();
     }

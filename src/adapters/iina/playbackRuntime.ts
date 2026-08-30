@@ -10,7 +10,6 @@ import {
     PLAYBACK_TICK_INTERVAL_MS,
     PROGRESS_REPORT_INTERVAL_MS,
     RESUME_SEEK_DELAY_MS,
-    resolveJellyfinSplashUrl,
     SKIP_SEGMENT_POLL_INTERVAL_MS,
     SKIP_SEGMENT_PREF_KEY,
     TICKS_PER_SECOND
@@ -20,13 +19,15 @@ import { IinaPlaybackApi } from "./playbackApi";
 import { logDebug } from "./utils";
 
 export interface PlaybackHandlersOptions {
+    libraryTitle: string;
+    libraryHostUrl: string;
     hideSidebar: () => void;
     showSidebar: () => void;
     refreshSidebar: () => void;
     showHttpsAlert: () => void;
     setActiveBackdropItem: (itemId: string) => void;
     clearActiveBackdropItem: () => void;
-    isSplashPath: (path: string) => boolean;
+    isLibraryHost: (path: string) => boolean;
 }
 
 export function initializePlaybackHandlers(
@@ -58,14 +59,15 @@ export function initializePlaybackHandlers(
         view,
         logger,
         config: {
-            splashUrl: resolveJellyfinSplashUrl(path => iina.file.exists(path)),
+            libraryTitle: options.libraryTitle,
+            libraryHostUrl: options.libraryHostUrl,
             ticksPerSecond: TICKS_PER_SECOND,
             resumeSeekDelayMs: RESUME_SEEK_DELAY_MS,
             progressReportIntervalMs: PROGRESS_REPORT_INTERVAL_MS,
             playbackTickIntervalMs: PLAYBACK_TICK_INTERVAL_MS,
             eofWatchThresholdSeconds: EOF_WATCH_THRESHOLD_SECONDS,
             skipSegmentPollIntervalMs: SKIP_SEGMENT_POLL_INTERVAL_MS,
-            isSplashPath: options.isSplashPath
+            isLibraryHost: options.isLibraryHost
         }
     });
 

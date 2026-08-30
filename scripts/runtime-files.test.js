@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 
 import { validateManifest } from "./runtime-files";
 
@@ -49,5 +50,16 @@ describe("runtime manifest validation", () => {
             "Info.json is missing permissions.",
             "Info.json is missing allowedDomains."
         ]);
+    });
+});
+
+describe("IINA runtime permissions", () => {
+    test("allows core.open to initialize an idle player", () => {
+        const manifest = JSON.parse(readFileSync(
+            new URL("../Info.json", import.meta.url),
+            "utf8"
+        ));
+
+        expect(manifest.permissions).toContain("file-system");
     });
 });

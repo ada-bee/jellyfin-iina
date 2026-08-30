@@ -28,6 +28,7 @@ export interface Player {
     getDurationSeconds(): number;
     isPaused(): boolean;
     isEofReached(): boolean;
+    pause(): void;
     getPlaylist(): PlaylistEntry[];
     getTrackSelection(playback: PlaybackSession): TrackSelection;
     loadReplacement(handoff: PlaybackHandoff, title: string): void;
@@ -81,14 +82,15 @@ export interface PlaybackLogger {
 }
 
 export interface PlaybackControllerConfig {
-    splashUrl: string;
+    libraryTitle: string;
+    libraryHostUrl: string;
     ticksPerSecond: number;
     resumeSeekDelayMs: number;
     progressReportIntervalMs: number;
     playbackTickIntervalMs: number;
     eofWatchThresholdSeconds: number;
     skipSegmentPollIntervalMs: number;
-    isSplashPath(path: string): boolean;
+    isLibraryHost(path: string): boolean;
 }
 
 export interface PlaybackControllerDependencies {

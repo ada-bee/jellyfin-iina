@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-    isJellyfinSplashPath,
+    isJellyfinLibraryHost,
     isJellyfinSidebarOpen,
     resolveBackdropMode
 } from "./eligibility";
+
+const LIBRARY_HOST_URL =
+    "av://lavfi:color@jellyfin=c=0x202020,fps=1,scale=s=1920x1080,setsar=1";
 
 describe("Jellyfin sidebar visibility", () => {
     test("uses tracked visibility when IINA cannot report plugin sidebars", () => {
@@ -20,21 +23,13 @@ describe("Jellyfin sidebar visibility", () => {
     });
 });
 
-describe("Jellyfin splash path", () => {
-    const splashPath = "~/Library/Application Support/IINA/plugins/jellyfin/assets/Jellyfin.png";
-    const resolvedDevPath = "/Users/adela/Developer/jellyfin-iina/assets/Jellyfin.png";
-
+describe("Jellyfin library host", () => {
     test("matches only the configured placeholder", () => {
-        expect(isJellyfinSplashPath(
-            "/Users/adela/Library/Application Support/IINA/plugins/jellyfin/assets/Jellyfin.png",
-            [splashPath, resolvedDevPath]
-        )).toBe(true);
-        expect(isJellyfinSplashPath(
-            "file:///Users/adela/Library/Application%20Support/IINA/plugins/jellyfin/assets/Jellyfin.png",
-            [splashPath, resolvedDevPath]
-        )).toBe(true);
-        expect(isJellyfinSplashPath(resolvedDevPath, [splashPath, resolvedDevPath])).toBe(true);
-        expect(isJellyfinSplashPath("/tmp/Jellyfin.png", [splashPath, resolvedDevPath])).toBe(false);
+        expect(isJellyfinLibraryHost(LIBRARY_HOST_URL, LIBRARY_HOST_URL)).toBe(true);
+        expect(isJellyfinLibraryHost(
+            "https://media.example.test/video.mp4",
+            LIBRARY_HOST_URL
+        )).toBe(false);
     });
 });
 
@@ -43,7 +38,7 @@ describe("backdrop mode", () => {
         playbackPaused: false,
         jellyfinPlaybackActive: false,
         mediaPath: "https://example.test/video.mp4",
-        splashPaths: ["/plugin/assets/Jellyfin.png"],
+        libraryHostUrl: LIBRARY_HOST_URL,
         jellyfinSidebarOpen: true,
         previewsEnabled: true
     };
@@ -51,11 +46,11 @@ describe("backdrop mode", () => {
     test("browses only over the configured placeholder", () => {
         expect(resolveBackdropMode({
             ...baseState,
-            mediaPath: "/plugin/assets/Jellyfin.png"
+            mediaPath: LIBRARY_HOST_URL
         })).toBe("browse");
         expect(resolveBackdropMode({
             ...baseState,
-            mediaPath: "/tmp/Jellyfin.png"
+            mediaPath: "https://media.example.test/video.mp4"
         })).toBe("hidden");
     });
 
@@ -74,7 +69,7 @@ describe("backdrop mode", () => {
     test("requires the Jellyfin sidebar and preference", () => {
         expect(resolveBackdropMode({
             ...baseState,
-            mediaPath: "/plugin/assets/Jellyfin.png",
+            mediaPath: LIBRARY_HOST_URL,
             jellyfinSidebarOpen: false
         })).toBe("hidden");
         expect(resolveBackdropMode({

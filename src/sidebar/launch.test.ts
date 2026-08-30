@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { shouldOpenJellyfinSplash } from "./launch";
+import { shouldOpenJellyfinLibrary } from "./launch";
 
 describe("Jellyfin sidebar launch", () => {
     test("uses the current idle player instead of creating another window", () => {
-        expect(shouldOpenJellyfinSplash({
+        expect(shouldOpenJellyfinLibrary({
             windowReady: false,
             windowClosed: false,
             windowLoaded: false,
@@ -13,13 +13,13 @@ describe("Jellyfin sidebar launch", () => {
     });
 
     test("waits for an existing window or media load", () => {
-        expect(shouldOpenJellyfinSplash({
+        expect(shouldOpenJellyfinLibrary({
             windowReady: false,
             windowClosed: false,
             windowLoaded: true,
             mediaPath: ""
         })).toBe(false);
-        expect(shouldOpenJellyfinSplash({
+        expect(shouldOpenJellyfinLibrary({
             windowReady: false,
             windowClosed: false,
             windowLoaded: false,
@@ -28,7 +28,7 @@ describe("Jellyfin sidebar launch", () => {
     });
 
     test("reuses a player whose previous window has closed", () => {
-        expect(shouldOpenJellyfinSplash({
+        expect(shouldOpenJellyfinLibrary({
             windowReady: false,
             windowClosed: true,
             windowLoaded: true,

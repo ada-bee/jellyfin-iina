@@ -7,16 +7,15 @@ import type {
 
 import { MESSAGE_NAMES } from "../../jellyfin/messages";
 import {
-    isJellyfinSplashPath,
+    isJellyfinLibraryHost,
     isJellyfinSidebarOpen,
     resolveBackdropMode
 } from "../../overlay/eligibility";
 import {
     BACKDROP_PREVIEWS_PREF_KEY,
-    JELLYFIN_DEV_PLUGIN_ROOT,
-    JELLYFIN_SPLASH_URLS,
+    JELLYFIN_LIBRARY_HOST_URL,
+    JELLYFIN_LIBRARY_TITLE,
     PREFER_EPISODE_IMAGES_IN_NEXT_UP_PREF_KEY,
-    resolveJellyfinSplashUrl,
     SHOW_SIDEBAR_DELAY_MS
 } from "./constants";
 import { initializePlaybackHandlers } from "./playbackRuntime";
@@ -30,7 +29,7 @@ import {
     setSidebarWidth
 } from "./mediaOverlay";
 import { clearAuthState, updateAuthState } from "../../jellyfin/session";
-import { shouldOpenJellyfinSplash } from "../../sidebar/launch";
+import { shouldOpenJellyfinLibrary } from "../../sidebar/launch";
 import { isHttpsUrl, logDebug, normalizeServerUrl } from "./utils";
 
 const { core, event, menu, mpv, preferences, sidebar, utils } = iina;
@@ -46,14 +45,6 @@ let sidebarVisible = false;
 let backdropPreviewsEnabled = true;
 let activeBackdropItemId = "";
 let sidebarVisibilityTimer: ReturnType<typeof setInterval> | null = null;
-const jellyfinSplashUrl = resolveJellyfinSplashUrl(path => iina.file.exists(path));
-const jellyfinSplashPaths = new Set(JELLYFIN_SPLASH_URLS.flatMap(path => {
-    try {
-        return [path, utils.resolvePath(path)].filter(Boolean);
-    } catch {
-        return [path];
-    }
-}));
 
 function getSidebarVisibility(): boolean {
     const sidebarWithVisibility = sidebar as typeof sidebar & { isVisible?: () => boolean };
@@ -115,7 +106,7 @@ function syncBackdropEligibility(): void {
         playbackPaused: mpv.getFlag("pause"),
         jellyfinPlaybackActive: Boolean(activeBackdropItemId),
         mediaPath: mpv.getString("path"),
-        splashPaths: [...jellyfinSplashPaths],
+        libraryHostUrl: JELLYFIN_LIBRARY_HOST_URL,
         jellyfinSidebarOpen: getSidebarVisibility(),
         previewsEnabled: backdropPreviewsEnabled
     });
@@ -139,14 +130,15 @@ function stopSidebarVisibilityPolling(): void {
 
 function toggleSidebarFromHotkey(): void {
     if (!windowReady) {
-        pendingShowSidebar = true;
-        if (shouldOpenJellyfinSplash({
+        if (shouldOpenJellyfinLibrary({
             windowReady,
             windowClosed,
             windowLoaded: core.window.loaded,
             mediaPath: mpv.getString("path")
         })) {
-            core.open(jellyfinSplashUrl);
+            pendingShowSidebar = playbackController.openLibrary();
+        } else {
+            pendingShowSidebar = true;
         }
         return;
     }
@@ -163,7 +155,6 @@ function toggleSidebarFromHotkey(): void {
 menu.addItem(menu.item("Jellyfin", toggleSidebarFromHotkey, { keyBinding: "Shift+J" }));
 
 initializeMediaOverlay();
-void addResolvedDevSplashPath();
 
 event.on("mpv.pause.changed", syncBackdropEligibility);
 event.on("iina.window-will-close", () => {
@@ -175,6 +166,8 @@ event.on("iina.window-will-close", () => {
 });
 
 const playbackController = initializePlaybackHandlers({
+    libraryTitle: JELLYFIN_LIBRARY_TITLE,
+    libraryHostUrl: JELLYFIN_LIBRARY_HOST_URL,
     hideSidebar,
     showSidebar: showSidebarWithNotification,
     refreshSidebar: () => {
@@ -189,7 +182,7 @@ const playbackController = initializePlaybackHandlers({
         activeBackdropItemId = "";
         syncBackdropEligibility();
     },
-    isSplashPath: path => isJellyfinSplashPath(path, [...jellyfinSplashPaths])
+    isLibraryHost: path => isJellyfinLibraryHost(path, JELLYFIN_LIBRARY_HOST_URL)
 });
 
 event.on("iina.window-loaded", () => {
@@ -252,18 +245,3 @@ event.on("iina.window-loaded", () => {
 
     logDebug("Jellyfin: Ready");
 });
-
-async function addResolvedDevSplashPath(): Promise<void> {
-    try {
-        const devPluginRoot = utils.resolvePath(JELLYFIN_DEV_PLUGIN_ROOT);
-        const result = await utils.exec("/usr/bin/readlink", [devPluginRoot]);
-        const resolvedRoot = result.status === 0 ? result.stdout.trim().replace(/\/+$/, "") : "";
-        if (!resolvedRoot.startsWith("/")) {
-            return;
-        }
-        jellyfinSplashPaths.add(`${resolvedRoot}/assets/Jellyfin.png`);
-        syncBackdropEligibility();
-    } catch {
-        // A normal installed plugin is a directory rather than a development symlink.
-    }
-}

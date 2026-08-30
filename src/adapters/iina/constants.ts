@@ -4,26 +4,10 @@ export { CLIENT_VERSION } from "../../jellyfin/version";
 export { CLIENT_NAME, DEBUG_LOGS, DEVICE_NAME, TICKS_PER_SECOND };
 
 export const SHOW_SIDEBAR_DELAY_MS = 300;
-export const JELLYFIN_PRODUCTION_PLUGIN_ROOT =
-    "~/Library/Application Support/com.colliderli.iina/plugins/xyz.brbc.jellyfin.iinaplugin";
-export const JELLYFIN_DEV_PLUGIN_ROOT = `${JELLYFIN_PRODUCTION_PLUGIN_ROOT}-dev`;
-export const JELLYFIN_SPLASH_URLS = [
-    `${JELLYFIN_PRODUCTION_PLUGIN_ROOT}/assets/Jellyfin.png`,
-    `${JELLYFIN_DEV_PLUGIN_ROOT}/assets/Jellyfin.png`
-];
-
-export function resolveJellyfinSplashUrl(fileExists: (path: string) => boolean): string {
-    for (const path of JELLYFIN_SPLASH_URLS) {
-        try {
-            if (fileExists(path)) {
-                return path;
-            }
-        } catch {
-            // Fall back to the conventional installed path below.
-        }
-    }
-    return JELLYFIN_SPLASH_URLS[0];
-}
+export const JELLYFIN_LIBRARY_TITLE = "Jellyfin";
+// The named filter keeps this mpv lavfi source parseable by Foundation's URL parser.
+export const JELLYFIN_LIBRARY_HOST_URL =
+    "av://lavfi:color@jellyfin=c=0x202020,fps=1,scale=s=1920x1080,setsar=1";
 
 export const RESUME_SEEK_DELAY_MS = 1000;
 

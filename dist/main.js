@@ -21,27 +21,19 @@
     }
     return reportedSidebar === JELLYFIN_SIDEBAR_NAME;
   }
-  function isJellyfinSplashPath(mediaPath, splashPaths) {
+  function isJellyfinLibraryHost(mediaPath, libraryHostUrl) {
     const actualPath = normalizeFilePath(mediaPath);
-    if (!actualPath) {
+    const expectedPath = normalizeFilePath(libraryHostUrl);
+    if (!actualPath || !expectedPath) {
       return false;
     }
-    return splashPaths.some((path) => matchesExpectedPath(actualPath, normalizeFilePath(path)));
-  }
-  function matchesExpectedPath(actualPath, expectedPath) {
-    if (!expectedPath) {
-      return false;
-    }
-    if (!expectedPath.startsWith("~/")) {
-      return actualPath === expectedPath;
-    }
-    return actualPath === expectedPath || actualPath.endsWith(expectedPath.slice(1));
+    return actualPath === expectedPath;
   }
   function resolveBackdropMode(state) {
     if (!state.jellyfinSidebarOpen || !state.previewsEnabled) {
       return "hidden";
     }
-    if (isJellyfinSplashPath(state.mediaPath, state.splashPaths)) {
+    if (isJellyfinLibraryHost(state.mediaPath, state.libraryHostUrl)) {
       return "browse";
     }
     if (state.jellyfinPlaybackActive && state.playbackPaused) {
@@ -102,22 +94,8 @@
   var CLIENT_VERSION = Info_default.version;
   // src/adapters/iina/constants.ts
   var SHOW_SIDEBAR_DELAY_MS = 300;
-  var JELLYFIN_PRODUCTION_PLUGIN_ROOT = "~/Library/Application Support/com.colliderli.iina/plugins/xyz.brbc.jellyfin.iinaplugin";
-  var JELLYFIN_DEV_PLUGIN_ROOT = `${JELLYFIN_PRODUCTION_PLUGIN_ROOT}-dev`;
-  var JELLYFIN_SPLASH_URLS = [
-    `${JELLYFIN_PRODUCTION_PLUGIN_ROOT}/assets/Jellyfin.png`,
-    `${JELLYFIN_DEV_PLUGIN_ROOT}/assets/Jellyfin.png`
-  ];
-  function resolveJellyfinSplashUrl(fileExists) {
-    for (const path of JELLYFIN_SPLASH_URLS) {
-      try {
-        if (fileExists(path)) {
-          return path;
-        }
-      } catch {}
-    }
-    return JELLYFIN_SPLASH_URLS[0];
-  }
+  var JELLYFIN_LIBRARY_TITLE = "Jellyfin";
+  var JELLYFIN_LIBRARY_HOST_URL = "av://lavfi:color@jellyfin=c=0x202020,fps=1,scale=s=1920x1080,setsar=1";
   var RESUME_SEEK_DELAY_MS = 1000;
   var PROGRESS_REPORT_INTERVAL_MS = 1e4;
   var PLAYBACK_TICK_INTERVAL_MS = 1000;
@@ -220,6 +198,9 @@
     }
     isEofReached() {
       return iina.mpv.getFlag("eof-reached");
+    }
+    pause() {
+      iina.core.pause();
     }
     getPlaylist() {
       const playlist = iina.mpv.getNative("playlist");
@@ -379,14 +360,26 @@
       this.dependencies.player.loadReplacement(handoff, request.title || "");
       this.dependencies.view.hideSidebar();
     }
+    openLibrary() {
+      try {
+        this.dependencies.player.setWindowTitle(this.dependencies.config.libraryTitle);
+        this.dependencies.player.open(this.dependencies.config.libraryHostUrl);
+        return true;
+      } catch (error) {
+        this.logFailure("open library", error);
+        return false;
+      }
+    }
     onFileLoaded() {
       const path = this.dependencies.player.getPath();
       if (!path) {
         return;
       }
-      if (this.dependencies.config.isSplashPath(path)) {
-        this.dependencies.logger.debug("Jellyfin: Splash loaded, showing sidebar");
-        this.clearPlaybackState("splash loaded");
+      if (this.dependencies.config.isLibraryHost(path)) {
+        this.dependencies.logger.debug("Jellyfin: Library host loaded, showing sidebar");
+        this.dependencies.player.setWindowTitle(this.dependencies.config.libraryTitle);
+        this.clearPlaybackState("library host loaded");
+        this.pauseLibraryHost();
         this.dependencies.view.showSidebar();
         this.dependencies.view.refreshSidebar();
         return;
@@ -423,6 +416,10 @@
       }
     }
     onPauseChanged() {
+      if (this.dependencies.config.isLibraryHost(this.dependencies.player.getPath())) {
+        this.pauseLibraryHost();
+        return;
+      }
       if (!this.model.active) {
         return;
       }
@@ -441,6 +438,13 @@
     }
     onWindowClose() {
       this.clearPlaybackState("window close");
+    }
+    pauseLibraryHost() {
+      if (this.dependencies.player.isPaused()) {
+        return;
+      }
+      this.dependencies.logger.debug("Jellyfin: Pausing library host");
+      this.dependencies.player.pause();
     }
     startPlaybackSession(session, pending) {
       this.dependencies.logger.debug("Jellyfin: Detected Jellyfin stream, starting playback reporting");
@@ -766,11 +770,7 @@
     }
     handleNoNextEpisode(reason) {
       this.dependencies.logger.debug("Jellyfin: No next episode:", reason);
-      try {
-        this.dependencies.player.open(this.dependencies.config.splashUrl);
-      } catch (error) {
-        this.logFailure("open splash", error);
-      }
+      this.openLibrary();
       this.dependencies.view.showSidebar();
       this.dependencies.view.refreshSidebar();
     }
@@ -1661,14 +1661,15 @@
       view,
       logger,
       config: {
-        splashUrl: resolveJellyfinSplashUrl((path) => iina.file.exists(path)),
+        libraryTitle: options.libraryTitle,
+        libraryHostUrl: options.libraryHostUrl,
         ticksPerSecond: TICKS_PER_SECOND,
         resumeSeekDelayMs: RESUME_SEEK_DELAY_MS,
         progressReportIntervalMs: PROGRESS_REPORT_INTERVAL_MS,
         playbackTickIntervalMs: PLAYBACK_TICK_INTERVAL_MS,
         eofWatchThresholdSeconds: EOF_WATCH_THRESHOLD_SECONDS,
         skipSegmentPollIntervalMs: SKIP_SEGMENT_POLL_INTERVAL_MS,
-        isSplashPath: options.isSplashPath
+        isLibraryHost: options.isLibraryHost
       }
     });
     iina.event.on("mpv.file-loaded", () => controller.onFileLoaded());
@@ -1681,7 +1682,7 @@
   }
 
   // src/sidebar/launch.ts
-  function shouldOpenJellyfinSplash(state) {
+  function shouldOpenJellyfinLibrary(state) {
     return !state.windowReady && (state.windowClosed || !state.windowLoaded && !state.mediaPath);
   }
 
@@ -1696,14 +1697,6 @@
   var backdropPreviewsEnabled = true;
   var activeBackdropItemId2 = "";
   var sidebarVisibilityTimer = null;
-  var jellyfinSplashUrl = resolveJellyfinSplashUrl((path) => iina.file.exists(path));
-  var jellyfinSplashPaths = new Set(JELLYFIN_SPLASH_URLS.flatMap((path) => {
-    try {
-      return [path, utils.resolvePath(path)].filter(Boolean);
-    } catch {
-      return [path];
-    }
-  }));
   function getSidebarVisibility() {
     const sidebarWithVisibility = sidebar;
     const trackedOpen = typeof sidebarWithVisibility.isVisible === "function" ? sidebarWithVisibility.isVisible() : sidebarVisible;
@@ -1753,7 +1746,7 @@
       playbackPaused: mpv.getFlag("pause"),
       jellyfinPlaybackActive: Boolean(activeBackdropItemId2),
       mediaPath: mpv.getString("path"),
-      splashPaths: [...jellyfinSplashPaths],
+      libraryHostUrl: JELLYFIN_LIBRARY_HOST_URL,
       jellyfinSidebarOpen: getSidebarVisibility(),
       previewsEnabled: backdropPreviewsEnabled
     });
@@ -1774,14 +1767,15 @@
   }
   function toggleSidebarFromHotkey() {
     if (!windowReady) {
-      pendingShowSidebar = true;
-      if (shouldOpenJellyfinSplash({
+      if (shouldOpenJellyfinLibrary({
         windowReady,
         windowClosed,
         windowLoaded: core.window.loaded,
         mediaPath: mpv.getString("path")
       })) {
-        core.open(jellyfinSplashUrl);
+        pendingShowSidebar = playbackController.openLibrary();
+      } else {
+        pendingShowSidebar = true;
       }
       return;
     }
@@ -1794,7 +1788,6 @@
   }
   menu.addItem(menu.item("Jellyfin", toggleSidebarFromHotkey, { keyBinding: "Shift+J" }));
   initializeMediaOverlay();
-  addResolvedDevSplashPath();
   event2.on("mpv.pause.changed", syncBackdropEligibility);
   event2.on("iina.window-will-close", () => {
     stopSidebarVisibilityPolling();
@@ -1804,6 +1797,8 @@
     syncBackdropEligibility();
   });
   var playbackController = initializePlaybackHandlers({
+    libraryTitle: JELLYFIN_LIBRARY_TITLE,
+    libraryHostUrl: JELLYFIN_LIBRARY_HOST_URL,
     hideSidebar,
     showSidebar: showSidebarWithNotification,
     refreshSidebar: () => {
@@ -1818,7 +1813,7 @@
       activeBackdropItemId2 = "";
       syncBackdropEligibility();
     },
-    isSplashPath: (path) => isJellyfinSplashPath(path, [...jellyfinSplashPaths])
+    isLibraryHost: (path) => isJellyfinLibraryHost(path, JELLYFIN_LIBRARY_HOST_URL)
   });
   event2.on("iina.window-loaded", () => {
     logDebug("Jellyfin: Window loaded");
@@ -1868,16 +1863,4 @@
     }
     logDebug("Jellyfin: Ready");
   });
-  async function addResolvedDevSplashPath() {
-    try {
-      const devPluginRoot = utils.resolvePath(JELLYFIN_DEV_PLUGIN_ROOT);
-      const result = await utils.exec("/usr/bin/readlink", [devPluginRoot]);
-      const resolvedRoot = result.status === 0 ? result.stdout.trim().replace(/\/+$/, "") : "";
-      if (!resolvedRoot.startsWith("/")) {
-        return;
-      }
-      jellyfinSplashPaths.add(`${resolvedRoot}/assets/Jellyfin.png`);
-      syncBackdropEligibility();
-    } catch {}
-  }
 })();

@@ -5,7 +5,7 @@ export interface SidebarLaunchState {
     mediaPath: string;
 }
 
-export function shouldOpenJellyfinSplash(state: SidebarLaunchState): boolean {
+export function shouldOpenJellyfinLibrary(state: SidebarLaunchState): boolean {
     return !state.windowReady
         && (state.windowClosed || (!state.windowLoaded && !state.mediaPath));
 }

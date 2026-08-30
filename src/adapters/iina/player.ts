@@ -34,6 +34,10 @@ export class IinaPlayer implements Player {
         return iina.mpv.getFlag("eof-reached");
     }
 
+    pause(): void {
+        iina.core.pause();
+    }
+
     getPlaylist(): PlaylistEntry[] {
         const playlist = iina.mpv.getNative<PlaylistEntry[]>("playlist");
         return Array.isArray(playlist) ? playlist : [];

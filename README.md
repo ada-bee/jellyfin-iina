@@ -19,7 +19,7 @@ archive directly when no release asset is available.
 ## Usage
 
 - Open the Jellyfin sidebar with Shift+J.
-- On next open you can use the "Resume Jellyfin.png" option in Recent Items to skip the select video dialog.
+- The plugin reopens its browser on a generated idle player surface.
 - Warning: **https is required** since v2.0.0
 
 ## Features
@@ -32,10 +32,6 @@ archive directly when no release asset is available.
 - External subtitles through IINA's native track controls.
 - Auto-play next episode (can be disabled). Next episode is added to the mpv playlist for native feel and media key support.
 - Intro-skipper integration (can be disabled). Clickable Skip button shows up during Intro/Credits similarly to the web interface.
-
-## Screenshot
-
-![Screenshot](images/screenshot.png)
 
 ## Development
 
