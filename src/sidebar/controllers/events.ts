@@ -3,7 +3,6 @@ import { setFocusedBackdropCard, setHoveredBackdropCard } from "../backdropConte
 import { findListCard, getCardContext, handleContentError, setSearchFilter } from "../views";
 import { state, type SearchFilter } from "../store";
 import { playItem, queueItem, type PlaybackContext } from "../playback";
-import { setupSeasonMenu } from "../seasonMenu";
 import {
     handleBack,
     handleClearSearch,
@@ -19,9 +18,9 @@ import {
     loadItems,
     loadMovie,
     loadSeriesDetails,
-    retrySelectedSeriesSeason,
+    retryExpandedSeriesSeason,
     saveCurrentLibraryScrollPosition,
-    selectSeriesSeason
+    toggleSeriesSeason
 } from "./loaders";
 import { resolveCardSelection } from "../selection";
 
@@ -29,7 +28,6 @@ let backdropInteractionListenersInstalled = false;
 
 export function setupEventListeners(): void {
     setupBackdropInteractionListeners();
-    setupSeasonMenu(seasonId => void selectSeriesSeason(seasonId));
     ui.loginForm.addEventListener("submit", handleLogin);
     ui.backBtn.addEventListener("click", handleBack);
     ui.retryBtn.addEventListener("click", handleRetry);
@@ -102,8 +100,14 @@ function handleContentClick(event: MouseEvent): void {
     if (handleDetailPlayClick(target)) {
         return;
     }
+    if (handleSeriesPlaybackTargetClick(target)) {
+        return;
+    }
+    if (handleSeriesSeasonToggle(target)) {
+        return;
+    }
     if (target?.closest("[data-season-retry]")) {
-        void retrySelectedSeriesSeason();
+        void retryExpandedSeriesSeason();
         return;
     }
     if (handleHomeLibraryClick(target)) {
@@ -118,6 +122,30 @@ function handleContentClick(event: MouseEvent): void {
     }
 
     handleListCardSelection(card);
+}
+
+function handleSeriesPlaybackTargetClick(target: HTMLElement | null): boolean {
+    const button = target?.closest<HTMLButtonElement>("[data-series-playback-target]");
+    if (!button) {
+        return false;
+    }
+    const episodeId = button.dataset.seriesPlaybackTarget || "";
+    if (episodeId) {
+        void loadEpisode(episodeId, button.dataset.name || "Episode");
+    }
+    return true;
+}
+
+function handleSeriesSeasonToggle(target: HTMLElement | null): boolean {
+    const trigger = target?.closest<HTMLButtonElement>("[data-season-toggle]");
+    if (!trigger) {
+        return false;
+    }
+    const seasonId = trigger.dataset.seasonToggle || "";
+    if (seasonId) {
+        void toggleSeriesSeason(seasonId);
+    }
+    return true;
 }
 
 function handleDetailQueueClick(target: HTMLElement | null): boolean {

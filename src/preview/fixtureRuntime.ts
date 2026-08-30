@@ -11,7 +11,7 @@ import {
     renderMovieDetails,
     renderSearchResults,
     renderSeriesDetails,
-    renderSeriesEpisodes,
+    renderSeriesSeasons,
     setSearchFilter,
     showBrowseView,
     showError,
@@ -19,7 +19,6 @@ import {
     showLoginView,
     updateTitle
 } from "../sidebar/views";
-import { setupSeasonMenu } from "../sidebar/seasonMenu";
 import { state, type SearchFilter } from "../sidebar/store";
 import {
     previewEpisode,
@@ -37,12 +36,6 @@ import { createPreviewUrl, getRequestedPreview, type PreviewName } from "./routi
 
 export function setupFixturePreview(): void {
     setupBackdropInteractionListeners();
-    setupSeasonMenu(seasonId => {
-        const seasonNumber = seasons.find(item => item.Id === seasonId)?.IndexNumber || 1;
-        const episodes = seasonEpisodes.map(item => ({ ...item, ParentIndexNumber: seasonNumber }));
-        state.currentSeries = { id: "series-north-station", name: "North Station", selectedSeasonId: seasonId };
-        renderSeriesEpisodes(seasons, seasonId, episodes, "ready");
-    });
     ui.backBtn.addEventListener("click", () => navigateToPreview("home"));
     ui.retryBtn.addEventListener("click", () => navigateToPreview("home"));
     ui.clearSearchButton.addEventListener("click", () => navigateToPreview("home"));
@@ -63,6 +56,7 @@ export function setupFixturePreview(): void {
             setSearchFilter(filter);
         }
     });
+    ui.bottomDetailActions.addEventListener("click", handleContentClick);
     ui.content.addEventListener("click", handleContentClick);
     window.addEventListener("popstate", () => renderPreview(getRequestedPreview(window.location.search)));
 
@@ -75,13 +69,21 @@ export function setupFixturePreview(): void {
 }
 
 function handleContentClick(event: MouseEvent): void {
-    const searchSectionFilter = (event.target as HTMLElement | null)
+    const target = event.target as HTMLElement | null;
+    if (target?.closest("[data-series-playback-target]")) {
+        navigateToPreview("episode");
+        return;
+    }
+    if (handleSeriesSeasonToggle(target)) {
+        return;
+    }
+    const searchSectionFilter = target
         ?.closest<HTMLButtonElement>("[data-search-section-filter]")?.dataset.searchSectionFilter;
     if (isSearchFilter(searchSectionFilter)) {
         setSearchFilter(searchSectionFilter);
         return;
     }
-    const libraryLink = (event.target as HTMLElement | null)
+    const libraryLink = target
         ?.closest<HTMLButtonElement>("[data-home-library]");
     if (libraryLink) {
         showPreviewLibrary(libraryLink);
@@ -95,6 +97,29 @@ function handleContentClick(event: MouseEvent): void {
     } else if (context?.type === "Episode" && !context.directPlay) {
         navigateToPreview("episode");
     }
+}
+
+function handleSeriesSeasonToggle(target: HTMLElement | null): boolean {
+    const trigger = target?.closest<HTMLButtonElement>("[data-season-toggle]");
+    const seasonId = trigger?.dataset.seasonToggle || "";
+    if (!trigger || !seasonId || !state.currentSeries) {
+        return false;
+    }
+    const expandedSeasonId = state.currentSeries.expandedSeasonId === seasonId ? "" : seasonId;
+    state.currentSeries.expandedSeasonId = expandedSeasonId;
+    const seasonNumber = seasons.find(item => item.Id === expandedSeasonId)?.IndexNumber || 1;
+    const episodes = expandedSeasonId
+        ? seasonEpisodes.map(item => ({ ...item, ParentIndexNumber: seasonNumber }))
+        : [];
+    renderSeriesSeasons(seasons, expandedSeasonId, episodes, "ready");
+    if (expandedSeasonId) {
+        requestAnimationFrame(() => {
+            const expandedSeason = [...document.querySelectorAll<HTMLElement>(".series-season")]
+                .find(season => season.dataset.seasonId === expandedSeasonId);
+            expandedSeason?.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+    }
+    return true;
 }
 
 function showPreviewLibrary(libraryLink: HTMLButtonElement): void {
@@ -179,10 +204,10 @@ const previewRenderers: Record<PreviewName, () => void> = {
     },
     series() {
         showBrowseView();
-        state.currentSeries = { id: "series-north-station", name: "North Station", selectedSeasonId: "season-1" };
+        state.currentSeries = { id: "series-north-station", name: "North Station", expandedSeasonId: "" };
         state.breadcrumb = [{ type: "series", id: "series-north-station", name: "North Station" }];
         updateTitle("North Station");
-        renderSeriesDetails(previewSeries, seasons, "season-1", seasonEpisodes, upNextItems[0], "ready");
+        renderSeriesDetails(previewSeries, seasons, "", [], upNextItems[0], "ready");
     },
     login: showLoginView,
     loading() {

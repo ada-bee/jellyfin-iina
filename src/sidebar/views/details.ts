@@ -1,9 +1,9 @@
 import type { JellyfinBaseItem } from "../../jellyfin/types";
 import {
     buildMediaDetailsViewModel,
+    buildSeriesPlaybackTargetViewModel,
     getProgressPercent,
     getPlayActionLabel,
-    getSeriesPlayLabel,
     type EpisodeLoadState,
     type MediaFileMetadataGroup,
     type MediaFileMetadataSource,
@@ -13,7 +13,6 @@ import {
 } from "../viewModels";
 import { setBackdropDetail } from "../backdropContext";
 import { ui } from "../dom";
-import { scheduleSeasonMenuLabelUpdate } from "../seasonMenu";
 import {
     buildMediaList,
     buildThumbProgressElement,
@@ -53,42 +52,43 @@ function renderPlayableDetails(item: JellyfinBaseItem, className: string): void 
 export function renderSeriesDetails(
     item: JellyfinBaseItem,
     seasons: JellyfinBaseItem[],
-    selectedSeasonId: string,
+    expandedSeasonId: string,
     episodes: JellyfinBaseItem[],
-    nextUpItem: JellyfinBaseItem | null,
+    playbackItem: JellyfinBaseItem | null,
     episodeLoadState: EpisodeLoadState
 ): void {
-    const nextUpLabel = nextUpItem ? getSeriesPlayLabel(nextUpItem) : "";
     const details = buildMediaDetails(
         item,
         buildMediaDetailsViewModel(item, seasons.length),
-        nextUpItem,
-        nextUpLabel
+        null,
+        "",
+        false
     );
     details.classList.add("series-details");
-    details.appendChild(buildSeriesEpisodesSection(seasons, selectedSeasonId, episodes, episodeLoadState));
+    details.appendChild(buildSeriesSeasonsSection(seasons, expandedSeasonId, episodes, episodeLoadState));
     replaceContent(details);
+    if (playbackItem) {
+        renderPlayableDetailActions(playbackItem, true);
+    }
     setBackdropDetail(item);
-    scheduleSeasonMenuLabelUpdate();
 }
 
-export function renderSeriesEpisodes(
+export function renderSeriesSeasons(
     seasons: JellyfinBaseItem[],
-    selectedSeasonId: string,
+    expandedSeasonId: string,
     episodes: JellyfinBaseItem[],
     episodeLoadState: EpisodeLoadState
 ): boolean {
-    const currentSection = ui.content.querySelector<HTMLElement>(".series-episodes");
+    const currentSection = ui.content.querySelector<HTMLElement>(".series-seasons");
     if (!currentSection) {
         return false;
     }
-    currentSection.replaceWith(buildSeriesEpisodesSection(
+    currentSection.replaceWith(buildSeriesSeasonsSection(
         seasons,
-        selectedSeasonId,
+        expandedSeasonId,
         episodes,
         episodeLoadState
     ));
-    scheduleSeasonMenuLabelUpdate();
     return true;
 }
 
@@ -111,24 +111,76 @@ function buildMediaDetails(
     return details;
 }
 
-function renderPlayableDetailActions(item: JellyfinBaseItem): void {
+function renderPlayableDetailActions(item: JellyfinBaseItem, showSeriesTarget: boolean = false): void {
     const play = document.createElement("button");
     play.className = "media-detail-action media-detail-action--primary";
     play.type = "button";
     applyDetailPlaybackContext(play, item);
     const playLabel = getPlayActionLabel(item);
-    play.setAttribute("aria-label", `${playLabel} ${String(item.Name || "video")}`);
-    play.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M4.5 2.8c0-.6.7-.9 1.2-.6l6 4c.4.3.4.9 0 1.2l-6 4c-.5.3-1.2 0-1.2-.6v-8Z" fill="currentColor"/></svg><span>${playLabel}</span>`;
+    const targetLabel = String(item.Name || "video");
+    play.setAttribute("aria-label", `${playLabel} ${targetLabel}`);
+    play.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M4.5 2.8c0-.6.7-.9 1.2-.6l6 4c.4.3.4.9 0 1.2l-6 4c-.5.3-1.2 0-1.2-.6v-8Z" fill="currentColor"/></svg>';
+    if (showSeriesTarget) {
+        play.classList.add("media-detail-action--icon");
+    } else {
+        play.appendChild(buildDetailActionLabel(playLabel));
+    }
 
     const queue = document.createElement("button");
     queue.className = "media-detail-action media-detail-action--secondary";
     queue.type = "button";
     applyDetailQueueContext(queue, item);
-    queue.setAttribute("aria-label", `Queue ${String(item.Name || "video")}`);
-    queue.innerHTML = '<svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true"><path d="M2.2 4h7.2M2.2 7.5h7.2M2.2 11h4.6M11.7 8.8v4.4M9.5 11h4.4" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/></svg><span>Queue</span>';
+    queue.setAttribute("aria-label", `Queue ${targetLabel}`);
+    queue.innerHTML = '<svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true"><path d="M2.2 4h7.2M2.2 7.5h7.2M2.2 11h4.6M11.7 8.8v4.4M9.5 11h4.4" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/></svg>';
+    if (showSeriesTarget) {
+        queue.classList.add("media-detail-action--icon");
+    } else {
+        queue.appendChild(buildDetailActionLabel("Queue"));
+    }
 
-    ui.bottomDetailActions.replaceChildren(play, queue);
+    const content = showSeriesTarget ? [buildSeriesPlaybackTarget(item), play, queue] : [play, queue];
+    ui.bottomDetailActions.replaceChildren(...content);
+    ui.bottomDetailActions.classList.toggle("media-detail-actions--series", showSeriesTarget);
     ui.bottomDetailActions.classList.remove("hidden");
+}
+
+function buildDetailActionLabel(label: string): HTMLElement {
+    const element = document.createElement("span");
+    element.textContent = label;
+    return element;
+}
+
+function buildSeriesPlaybackTarget(item: JellyfinBaseItem): HTMLButtonElement {
+    const viewModel = buildSeriesPlaybackTargetViewModel(item);
+    const target = document.createElement("button");
+    target.className = "series-playback-target";
+    target.type = "button";
+    target.dataset.seriesPlaybackTarget = item.Id || "";
+    target.dataset.name = viewModel.title;
+    target.setAttribute("aria-label", `View episode details: ${viewModel.title}, ${viewModel.metadata}`);
+
+    const artwork = document.createElement("div");
+    artwork.className = "series-playback-target-artwork";
+    const image = document.createElement("img");
+    image.className = "series-playback-target-image list-thumb";
+    image.src = getImageUrl(item.Id || "", "Primary", 240);
+    image.dataset.fallback = getImageUrl(item.SeriesId || "", "Thumb", 240);
+    image.dataset.itemId = item.SeriesId || "";
+    image.dataset.type = "Series";
+    image.alt = "";
+    artwork.appendChild(image);
+
+    const copy = document.createElement("div");
+    copy.className = "series-playback-target-copy";
+    const title = document.createElement("span");
+    title.className = "series-playback-target-title";
+    title.textContent = viewModel.title;
+    const metadata = document.createElement("span");
+    metadata.className = "series-playback-target-metadata";
+    metadata.textContent = viewModel.metadata;
+    copy.append(title, metadata);
+    target.append(artwork, copy);
+    return target;
 }
 
 function buildMediaFileInfo(sources: MediaFileMetadataSource[]): HTMLElement {
@@ -364,31 +416,93 @@ function applyDetailActionContext(element: HTMLElement, item: JellyfinBaseItem):
     element.setAttribute("data-clickable", "");
 }
 
-function buildSeriesEpisodesSection(
+function buildSeriesSeasonsSection(
     seasons: JellyfinBaseItem[],
-    selectedSeasonId: string,
+    expandedSeasonId: string,
     episodes: JellyfinBaseItem[],
     loadState: EpisodeLoadState
 ): HTMLElement {
     const section = document.createElement("section");
-    section.className = "series-episodes";
-
-    if (seasons.length > 0) {
-        section.appendChild(buildSeasonSelector(seasons, selectedSeasonId));
+    section.className = "series-seasons";
+    section.setAttribute("aria-label", "Seasons");
+    if (seasons.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "series-season-empty";
+        empty.textContent = "No seasons available.";
+        section.appendChild(empty);
+        return section;
     }
+
+    const list = document.createElement("div");
+    list.className = "series-season-list";
+    seasons.forEach((season, index) => {
+        const expanded = season.Id === expandedSeasonId;
+        list.appendChild(buildSeason(
+            season,
+            index,
+            expanded,
+            expanded ? episodes : [],
+            expanded ? loadState : "ready"
+        ));
+    });
+    section.appendChild(list);
+    return section;
+}
+
+function buildSeason(
+    season: JellyfinBaseItem,
+    index: number,
+    expanded: boolean,
+    episodes: JellyfinBaseItem[],
+    loadState: EpisodeLoadState
+): HTMLElement {
+    const item = document.createElement("section");
+    item.className = "series-season";
+    item.dataset.seasonId = season.Id || "";
+
+    const heading = document.createElement("h3");
+    heading.className = "series-season-heading";
+    const trigger = document.createElement("button");
+    trigger.className = "series-season-trigger";
+    trigger.type = "button";
+    trigger.dataset.seasonToggle = season.Id || "";
+    trigger.setAttribute("data-clickable", "");
+    trigger.setAttribute("aria-expanded", String(expanded));
+    trigger.setAttribute("aria-controls", `series-season-panel-${index}`);
+    const label = document.createElement("span");
+    label.className = "series-season-label";
+    label.textContent = String(season.Name || "Season");
+    trigger.append(label, buildDisclosureChevron());
+    heading.appendChild(trigger);
+
+    const panel = document.createElement("div");
+    panel.id = `series-season-panel-${index}`;
+    panel.className = "series-season-panel";
+    panel.hidden = !expanded;
+    if (expanded) {
+        appendSeasonEpisodes(panel, episodes, loadState);
+    }
+    item.append(heading, panel);
+    return item;
+}
+
+function appendSeasonEpisodes(
+    panel: HTMLElement,
+    episodes: JellyfinBaseItem[],
+    loadState: EpisodeLoadState
+): void {
     const status = buildEpisodeLoadStatus(loadState);
     if (status) {
-        section.appendChild(status);
-        return section;
+        panel.appendChild(status);
+        return;
     }
     if (episodes.length === 0) {
         const empty = document.createElement("p");
         empty.className = "series-episode-empty";
         empty.textContent = "No episodes in this season.";
-        section.appendChild(empty);
-        return section;
+        panel.appendChild(empty);
+        return;
     }
-
     const list = buildMediaList(episodes, {
         showSeriesName: false,
         showEpisodeNumber: true,
@@ -396,53 +510,7 @@ function buildSeriesEpisodesSection(
         episodeRow: true
     });
     list.classList.add("series-episode-list");
-    section.appendChild(list);
-    return section;
-}
-
-function buildSeasonSelector(seasons: JellyfinBaseItem[], selectedSeasonId: string): HTMLElement {
-    const controls = document.createElement("div");
-    controls.className = "series-episodes-controls";
-    const selector = document.createElement("div");
-    selector.className = "season-selector";
-    selector.dataset.seasonSelector = "";
-    const selectedSeason = seasons.find(season => season.Id === selectedSeasonId) || seasons[0];
-    const trigger = document.createElement("button");
-    trigger.className = "season-selector-trigger";
-    trigger.type = "button";
-    trigger.dataset.seasonMenuTrigger = "";
-    trigger.setAttribute("data-clickable", "");
-    trigger.setAttribute("aria-label", `Choose season, selected ${String(selectedSeason?.Name || "Season")}`);
-    trigger.setAttribute("aria-haspopup", "listbox");
-    trigger.setAttribute("aria-expanded", "false");
-    trigger.setAttribute("aria-controls", "season-selector-menu");
-    const label = document.createElement("span");
-    label.className = "season-selector-label";
-    label.dataset.seasonMenuLabel = "";
-    label.textContent = String(selectedSeason?.Name || "Season");
-    trigger.append(label, buildDisclosureChevron());
-
-    const menu = document.createElement("div");
-    menu.id = "season-selector-menu";
-    menu.className = "season-selector-menu hidden";
-    menu.dataset.seasonMenu = "";
-    menu.setAttribute("role", "listbox");
-    menu.setAttribute("aria-label", "Season");
-    seasons.forEach(season => {
-        const option = document.createElement("button");
-        option.className = "season-selector-option";
-        option.type = "button";
-        option.dataset.seasonOption = season.Id || "";
-        option.setAttribute("data-clickable", "");
-        option.setAttribute("role", "option");
-        option.setAttribute("aria-selected", String(season.Id === selectedSeason?.Id));
-        option.tabIndex = -1;
-        option.textContent = String(season.Name || "Season");
-        menu.appendChild(option);
-    });
-    selector.append(trigger, menu);
-    controls.appendChild(selector);
-    return controls;
+    panel.appendChild(list);
 }
 
 function buildEpisodeLoadStatus(loadState: EpisodeLoadState): HTMLElement | null {

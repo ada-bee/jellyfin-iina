@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { JellyfinBaseItem } from "../../jellyfin/types";
 import type { SidebarRequestPort } from "./port";
 
-import { getDefaultSeasonId } from "./details";
+import { createDetailsRequests } from "./details";
 import { createHomeRequests, mergeItems } from "./home";
 import { rankSearchResults } from "./search";
 
@@ -59,13 +59,37 @@ describe("sidebar request modules", () => {
             .toHaveLength(2);
     });
 
-    test("prefers the season containing the next episode", () => {
-        const seasons: JellyfinBaseItem[] = [
-            { Id: "season-1", IndexNumber: 1 },
-            { Id: "season-2", IndexNumber: 2 }
-        ];
-        expect(getDefaultSeasonId(seasons, { SeasonId: "season-2" })).toBe("season-2");
-        expect(getDefaultSeasonId(seasons, null)).toBe("season-1");
+    test("prefers series next-up playback and falls back to its first episode", async () => {
+        const resumeEpisode: JellyfinBaseItem = { Id: "resume", Type: "Episode" };
+        const firstEpisode: JellyfinBaseItem = { Id: "first", Type: "Episode" };
+        const load = async (nextUpItems: JellyfinBaseItem[]) => {
+            const endpoints: string[] = [];
+            const port: SidebarRequestPort = {
+                async requestJson<T>(_method: string, endpoint: string): Promise<T | null> {
+                    endpoints.push(endpoint);
+                    if (endpoint.startsWith("/Shows/NextUp")) {
+                        return { Items: nextUpItems } as T;
+                    }
+                    if (endpoint.includes("/Seasons?")) {
+                        return { Items: [] } as T;
+                    }
+                    return { Items: [firstEpisode] } as T;
+                },
+                async fetchItemDetails(): Promise<JellyfinBaseItem | null> {
+                    return { Id: "series", Type: "Series" };
+                }
+            };
+            const result = await createDetailsRequests(port).loadSeries("user", "series");
+            return { endpoints, result };
+        };
+
+        const nextUp = await load([resumeEpisode]);
+        expect(nextUp.result.playbackItem).toBe(resumeEpisode);
+        expect(nextUp.endpoints.some(endpoint => endpoint.includes("/Episodes?"))).toBe(false);
+
+        const fallback = await load([]);
+        expect(fallback.result.playbackItem).toEqual(firstEpisode);
+        expect(fallback.endpoints.some(endpoint => endpoint.includes("/Episodes?"))).toBe(true);
     });
 
     test("ranks exact, prefix, word-prefix, and substring matches stably", () => {

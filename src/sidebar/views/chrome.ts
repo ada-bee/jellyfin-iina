@@ -50,7 +50,9 @@ export function updateTitle(title: string): void {
     const showHome = title === "Home" && state.breadcrumb.length === 0 && !state.searchQuery;
     const showSearchFilters = title === "Search Results" && Boolean(state.searchQuery);
     const detailType = state.breadcrumb[state.breadcrumb.length - 1]?.type;
-    const showPlaybackActions = detailType === "movie" || detailType === "episode";
+    const showPlaybackActions = detailType === "movie"
+        || detailType === "episode"
+        || detailType === "series";
     const showSectionHeader = !showHome && !showSearchFilters;
     const canGoBack = state.breadcrumb.length > 0;
 

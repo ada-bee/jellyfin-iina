@@ -863,6 +863,71 @@ button {
     transition: background-color 140ms ease, transform 140ms ease;
 }
 
+.media-detail-actions--series {
+    height: 36px;
+    grid-template-columns: minmax(0, 1fr) 36px 36px;
+}
+
+.series-playback-target {
+    display: grid;
+    height: 36px;
+    min-width: 0;
+    grid-template-columns: 64px minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+}
+
+.series-playback-target:focus-visible .series-playback-target-title {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.series-playback-target-artwork {
+    width: 64px;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    border-radius: 7px;
+    background: #1c1c1e;
+    box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .1);
+}
+
+.series-playback-target-copy {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.series-playback-target-title,
+.series-playback-target-metadata {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.series-playback-target-title {
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 620;
+    line-height: 16px;
+}
+
+.series-playback-target-metadata {
+    color: var(--secondary);
+    font-size: 12px;
+    line-height: 14px;
+}
+
+.media-detail-action--icon {
+    width: 36px;
+    padding: 0;
+}
+
 .media-detail-action--primary {
     border-color: rgba(255, 255, 255, .72);
     background: rgba(255, 255, 255, .92);
@@ -1014,130 +1079,88 @@ button.media-file-track[aria-pressed="true"]::after {
     font-weight: 400;
 }
 
-.series-episodes {
-    display: flex;
+.series-seasons {
     margin-top: 28px;
     padding-top: 20px;
     border-top: .5px solid var(--separator);
-    flex-direction: column;
-    gap: 13px;
 }
 
-.series-episodes-controls {
+.series-season-list {
     display: flex;
-    align-items: center;
-    justify-content: flex-start;
+    flex-direction: column;
 }
 
-.season-selector {
-    position: relative;
-    display: inline-flex;
-    min-width: 0;
-    max-width: 100%;
-    align-items: center;
+.series-season {
+    scroll-margin-top: 60px;
 }
 
-.season-selector-trigger {
-    display: inline-flex;
+.series-season-heading {
+    margin: 0;
+}
+
+.series-season-trigger {
+    display: flex;
+    width: 100%;
     min-width: 0;
-    max-width: 100%;
     align-items: center;
-    gap: 3px;
-    padding: 0;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 9px 0;
     border: 0;
     outline: 0;
     color: var(--text);
     background: transparent;
     font-family: inherit;
-    font-size: 20px;
+    font-size: 16px;
     font-weight: 600;
     line-height: 1.35;
+    text-align: left;
     cursor: pointer;
 }
 
-.season-selector-label {
+.series-season-label {
+    flex: 1;
     min-width: 0;
     overflow: hidden;
     white-space: nowrap;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
 }
 
-.season-selector-label--truncated {
-    -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 24px), transparent 100%);
-    mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 24px), transparent 100%);
-}
-
-.season-selector-trigger svg {
+.series-season-trigger svg {
     flex: none;
     color: var(--secondary);
     transition: transform 140ms ease, color 140ms ease;
 }
 
-.season-selector-trigger:hover svg,
-.season-selector--open .season-selector-trigger svg {
+.series-season-trigger:hover svg {
     color: var(--text);
     transform: translateX(2px);
 }
 
-.season-selector-trigger:focus-visible {
+.series-season-trigger[aria-expanded="true"] svg {
+    color: var(--text);
+    transform: rotate(90deg);
+}
+
+.series-season-trigger:focus-visible {
     border-radius: 4px;
     box-shadow: 0 0 0 2px rgba(255, 255, 255, .72);
 }
 
-.season-selector-menu {
-    position: absolute;
-    z-index: 12;
-    top: calc(100% + 8px);
-    left: 0;
-    display: grid;
-    width: max-content;
-    min-width: 100%;
-    max-width: min(300px, calc(100vw - 32px));
-    max-height: 240px;
-    gap: 2px;
-    padding: 5px;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    border: .5px solid rgba(255, 255, 255, .18);
-    border-radius: 10px;
-    background: rgba(44, 44, 47, .92);
-    box-shadow: 0 12px 32px rgba(0, 0, 0, .42), inset 0 .5px 0 rgba(255, 255, 255, .12);
-    -webkit-backdrop-filter: blur(22px) saturate(150%);
-    backdrop-filter: blur(22px) saturate(150%);
+.series-season-panel {
+    padding: 3px 0 18px;
 }
 
-.season-selector-option {
-    display: flex;
-    width: 100%;
-    min-height: 36px;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 7px 10px;
-    border: 0;
-    border-radius: 7px;
-    outline: 0;
-    background: transparent;
-    color: var(--text);
-    font-size: 14.5px;
-    line-height: 1.25;
-    text-align: left;
-    cursor: pointer;
+.series-season-panel[hidden] {
+    display: none;
 }
 
-.season-selector-option[aria-selected="true"] {
-    background: rgba(255, 255, 255, .12);
-    font-weight: 650;
-}
-
-.season-selector-option[aria-selected="true"]::after {
-    flex: none;
-    content: "✓";
-    color: var(--text);
-}
-
-.season-selector-option:hover,
-.season-selector-option:focus-visible {
-    background: rgba(255, 255, 255, .18);
+.series-season-empty {
+    min-height: 80px;
+    padding-top: 18px;
+    color: var(--secondary);
+    text-align: center;
 }
 
 .series-episode-list {

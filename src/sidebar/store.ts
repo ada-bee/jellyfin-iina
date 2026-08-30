@@ -35,7 +35,7 @@ export interface LibraryState {
 export interface SeriesState {
     id: string;
     name: string;
-    selectedSeasonId: string;
+    expandedSeasonId: string;
 }
 
 export type BreadcrumbEntry =

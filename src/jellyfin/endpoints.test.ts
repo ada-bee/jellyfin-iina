@@ -5,7 +5,9 @@ import {
     buildLatestItemsEndpoint,
     buildLibraryItemsEndpoint,
     buildResumeItemsEndpoint,
-    buildSearchEndpoint
+    buildSearchEndpoint,
+    buildSeriesFirstEpisodeEndpoint,
+    buildSeriesNextUpEndpoint
 } from "./endpoints";
 
 function parseEndpoint(endpoint: string): URL {
@@ -35,6 +37,19 @@ describe("Jellyfin 12 item endpoints", () => {
         expect(url.pathname).toBe("/Items/item%2Fid");
         expect(url.searchParams.get("userId")).toBe("user/id");
         expect(url.searchParams.get("fields")).toBe("Overview");
+    });
+
+    test("selects resumable next-up episodes and provides a first-episode fallback", () => {
+        const nextUp = parseEndpoint(buildSeriesNextUpEndpoint("user/id", "series/id"));
+        expect(nextUp.pathname).toBe("/Shows/NextUp");
+        expect(nextUp.searchParams.get("seriesId")).toBe("series/id");
+        expect(nextUp.searchParams.get("enableResumable")).toBe("true");
+        expect(nextUp.searchParams.get("disableFirstEpisode")).toBe("true");
+
+        const first = parseEndpoint(buildSeriesFirstEpisodeEndpoint("user/id", "series/id"));
+        expect(first.pathname).toBe("/Shows/series%2Fid/Episodes");
+        expect(first.searchParams.get("startIndex")).toBe("0");
+        expect(first.searchParams.get("limit")).toBe("1");
     });
 
     test("encodes search input without changing the canonical route", () => {

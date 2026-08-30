@@ -1,7 +1,6 @@
 import type { JellyfinBaseItem } from "../../jellyfin/types";
 
 import { LatestRequest, RequestCache } from "../../sidebar/requests/coordinator";
-import { getDefaultSeasonId } from "../../sidebar/requests/details";
 import type { HomeViewData } from "../../sidebar/requests/home";
 import { sidebarRequests } from "../../adapters/browser/sidebarRequests";
 import { sidebarStore, state, type LibraryState } from "../../sidebar/store";
@@ -14,7 +13,7 @@ import {
     renderMovieDetails,
     renderSearchResults,
     renderSeriesDetails,
-    renderSeriesEpisodes,
+    renderSeriesSeasons,
     showLibraryGridLoadError,
     showError,
     showLoading,
@@ -50,8 +49,8 @@ interface PlayableDetailsLoadOptions {
 interface SeriesViewData {
     details: JellyfinBaseItem;
     seasons: JellyfinBaseItem[];
-    nextUpItem: JellyfinBaseItem | null;
-    selectedSeasonId: string;
+    playbackItem: JellyfinBaseItem | null;
+    expandedSeasonId: string;
     episodesBySeason: Map<string, JellyfinBaseItem[]>;
 }
 
@@ -293,18 +292,16 @@ async function fetchAndRenderSeriesDetails(options: {
 
     const cachedSeries = seriesDetailsCache.get(cacheKey);
     if (cachedSeries) {
+        cachedSeries.expandedSeasonId = "";
         setCurrentSeriesView(cachedSeries);
         hideLoading();
-        renderSeriesView(cachedSeries, getSeriesEpisodeLoadState(cachedSeries), 0);
-        if (cachedSeries.selectedSeasonId && !cachedSeries.episodesBySeason.has(cachedSeries.selectedSeasonId)) {
-            void loadSeriesSeason(cachedSeries, cachedSeries.selectedSeasonId, 0, false);
-        }
+        renderSeriesView(cachedSeries, "ready", 0);
         return;
     }
 
     showLoading("details");
     try {
-        const { details, nextUpItem, seasons } = await sidebarRequests.details.loadSeries(
+        const { details, playbackItem, seasons } = await sidebarRequests.details.loadSeries(
             state.userId,
             options.seriesId
         );
@@ -317,20 +314,15 @@ async function fetchAndRenderSeriesDetails(options: {
         const view: SeriesViewData = {
             details,
             seasons,
-            nextUpItem,
-            selectedSeasonId: getDefaultSeasonId(seasons, nextUpItem),
+            playbackItem,
+            expandedSeasonId: "",
             episodesBySeason: new Map<string, JellyfinBaseItem[]>()
         };
         seriesDetailsCache.set(cacheKey, view);
         setCurrentSeriesView(view);
         updateTitle(String(details.Name || options.seriesName));
         hideLoading();
-        if (view.selectedSeasonId) {
-            renderSeriesView(view, "loading", 0);
-            void loadSeriesSeason(view, view.selectedSeasonId, 0, false);
-        } else {
-            renderSeriesView(view, "ready", 0);
-        }
+        renderSeriesView(view, "ready", 0);
     } catch (error) {
         if (!viewRequests.isCurrent(requestId)) {
             return;
@@ -339,24 +331,20 @@ async function fetchAndRenderSeriesDetails(options: {
     }
 }
 
-async function loadSeriesSeason(
+async function expandSeriesSeason(
     view: SeriesViewData,
     seasonId: string,
-    scrollTop: number,
     forceReload: boolean
 ): Promise<void> {
-    view.selectedSeasonId = seasonId;
-    if (state.currentSeries) {
-        state.currentSeries.selectedSeasonId = seasonId;
-    }
+    setExpandedSeriesSeason(view, seasonId);
     const cachedEpisodes = forceReload ? undefined : view.episodesBySeason.get(seasonId);
     if (cachedEpisodes) {
-        renderSeriesSeason(view, "ready", scrollTop);
+        renderSeriesSeason(view, "ready", window.scrollY, true);
         return;
     }
 
     const requestId = seriesSeasonRequests.begin();
-    renderSeriesSeason(view, "loading", scrollTop);
+    renderSeriesSeason(view, "loading", window.scrollY, true);
     try {
         const episodes = await sidebarRequests.details.loadEpisodes(
             state.userId,
@@ -366,17 +354,24 @@ async function loadSeriesSeason(
         if (
             !seriesSeasonRequests.isCurrent(requestId) ||
             currentSeriesView !== view ||
-            view.selectedSeasonId !== seasonId
+            view.expandedSeasonId !== seasonId
         ) {
             return;
         }
         view.episodesBySeason.set(seasonId, episodes);
-        renderSeriesSeason(view, "ready", scrollTop);
+        renderSeriesSeason(view, "ready", window.scrollY, true);
     } catch {
         if (!seriesSeasonRequests.isCurrent(requestId) || currentSeriesView !== view) {
             return;
         }
-        renderSeriesSeason(view, "error", scrollTop);
+        renderSeriesSeason(view, "error", window.scrollY, true);
+    }
+}
+
+function setExpandedSeriesSeason(view: SeriesViewData, seasonId: string): void {
+    view.expandedSeasonId = seasonId;
+    if (state.currentSeries) {
+        state.currentSeries.expandedSeasonId = seasonId;
     }
 }
 
@@ -385,12 +380,8 @@ function setCurrentSeriesView(view: SeriesViewData): void {
     state.currentSeries = {
         id: view.details.Id || "",
         name: String(view.details.Name || "Series"),
-        selectedSeasonId: view.selectedSeasonId
+        expandedSeasonId: view.expandedSeasonId
     };
-}
-
-function getSeriesEpisodeLoadState(view: SeriesViewData): "ready" | "loading" {
-    return !view.selectedSeasonId || view.episodesBySeason.has(view.selectedSeasonId) ? "ready" : "loading";
 }
 
 function renderSeriesView(
@@ -401,9 +392,9 @@ function renderSeriesView(
     renderSeriesDetails(
         view.details,
         view.seasons,
-        view.selectedSeasonId,
-        view.episodesBySeason.get(view.selectedSeasonId) || [],
-        view.nextUpItem,
+        view.expandedSeasonId,
+        view.episodesBySeason.get(view.expandedSeasonId) || [],
+        view.playbackItem,
         loadState
     );
     requestAnimationFrame(() => window.scrollTo(0, scrollTop));
@@ -412,19 +403,36 @@ function renderSeriesView(
 function renderSeriesSeason(
     view: SeriesViewData,
     loadState: "ready" | "loading" | "error",
-    scrollTop: number
+    scrollTop: number,
+    scrollToExpandedSeason: boolean
 ): void {
-    const updated = renderSeriesEpisodes(
+    const updated = renderSeriesSeasons(
         view.seasons,
-        view.selectedSeasonId,
-        view.episodesBySeason.get(view.selectedSeasonId) || [],
+        view.expandedSeasonId,
+        view.episodesBySeason.get(view.expandedSeasonId) || [],
         loadState
     );
     if (!updated) {
         renderSeriesView(view, loadState, scrollTop);
         return;
     }
-    requestAnimationFrame(() => window.scrollTo(0, scrollTop));
+    scheduleSeriesSeasonScroll(view.expandedSeasonId, scrollTop, scrollToExpandedSeason);
+}
+
+function scheduleSeriesSeasonScroll(
+    expandedSeasonId: string,
+    scrollTop: number,
+    scrollToExpandedSeason: boolean
+): void {
+    requestAnimationFrame(() => {
+        if (!scrollToExpandedSeason) {
+            window.scrollTo(0, scrollTop);
+            return;
+        }
+        const expandedSeason = [...document.querySelectorAll<HTMLElement>(".series-season")]
+            .find(season => season.dataset.seasonId === expandedSeasonId);
+        expandedSeason?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
 }
 
 export async function reloadItems(breadcrumb: {
@@ -561,20 +569,26 @@ export async function reloadEpisode(breadcrumb: { id: string; name: string }): P
     });
 }
 
-export async function selectSeriesSeason(seasonId: string): Promise<void> {
+export async function toggleSeriesSeason(seasonId: string): Promise<void> {
     const view = currentSeriesView;
     if (!view || !view.seasons.some(season => season.Id === seasonId)) {
         return;
     }
-    await loadSeriesSeason(view, seasonId, window.scrollY, false);
-}
-
-export async function retrySelectedSeriesSeason(): Promise<void> {
-    const view = currentSeriesView;
-    if (!view?.selectedSeasonId) {
+    if (view.expandedSeasonId === seasonId) {
+        seriesSeasonRequests.cancel();
+        setExpandedSeriesSeason(view, "");
+        renderSeriesSeason(view, "ready", window.scrollY, false);
         return;
     }
-    await loadSeriesSeason(view, view.selectedSeasonId, window.scrollY, true);
+    await expandSeriesSeason(view, seasonId, false);
+}
+
+export async function retryExpandedSeriesSeason(): Promise<void> {
+    const view = currentSeriesView;
+    if (!view?.expandedSeasonId) {
+        return;
+    }
+    await expandSeriesSeason(view, view.expandedSeasonId, true);
 }
 
 export async function performSearch(query: string): Promise<void> {

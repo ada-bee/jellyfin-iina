@@ -658,6 +658,9 @@
   function buildEpisodesEndpoint(userId, seriesId, seasonId) {
     return `/Shows/${encodeURIComponent(seriesId)}/Episodes?userId=${encodeURIComponent(userId)}` + `&seasonId=${encodeURIComponent(seasonId)}&fields=${FIELDS_EPISODES}`;
   }
+  function buildSeriesFirstEpisodeEndpoint(userId, seriesId) {
+    return `/Shows/${encodeURIComponent(seriesId)}/Episodes?userId=${encodeURIComponent(userId)}` + `&startIndex=0&limit=1&fields=${FIELDS_EPISODES}`;
+  }
   function buildLatestItemsEndpoint(userId, itemType, limit) {
     return `/Items/Latest?userId=${encodeURIComponent(userId)}` + `&includeItemTypes=${encodeURIComponent(itemType)}&limit=${limit}` + `&fields=${FIELDS_HOME_ITEMS}&groupItems=false`;
   }
@@ -681,7 +684,7 @@
     return `/Shows/${encodeURIComponent(seriesId)}/Seasons?userId=${encodeURIComponent(userId)}` + `&fields=${FIELDS_SEASONS}`;
   }
   function buildSeriesNextUpEndpoint(userId, seriesId) {
-    return `/Shows/NextUp?userId=${encodeURIComponent(userId)}` + `&seriesId=${encodeURIComponent(seriesId)}&limit=1&fields=${FIELDS_HOME_ITEMS}`;
+    return `/Shows/NextUp?userId=${encodeURIComponent(userId)}` + `&seriesId=${encodeURIComponent(seriesId)}&limit=1&fields=${FIELDS_HOME_ITEMS}` + "&disableFirstEpisode=true&enableResumable=true";
   }
   function buildItemDetailsEndpoint(userId, itemId, fields) {
     return `/Items/${encodeURIComponent(itemId)}?userId=${encodeURIComponent(userId)}` + `&fields=${fields}`;
@@ -1085,9 +1088,13 @@
       }
     };
   }
-  function getSeriesPlayLabel(item) {
+  function buildSeriesPlaybackTargetViewModel(item) {
     const episodeNumber = formatPaddedEpisodeNumber(item.ParentIndexNumber, item.IndexNumber);
-    return `${getPlayActionLabel(item)} ${episodeNumber}`;
+    const runtime = formatRuntime(item.RunTimeTicks);
+    return {
+      title: String(item.Name || "Episode"),
+      metadata: [episodeNumber, runtime].filter(Boolean).join(" · ")
+    };
   }
   function getPlayActionLabel(item) {
     return item.UserData?.PlaybackPositionTicks && !item.UserData.Played ? "Resume" : "Play";
@@ -1831,7 +1838,7 @@
     const showHome = title === "Home" && state.breadcrumb.length === 0 && !state.searchQuery;
     const showSearchFilters = title === "Search Results" && Boolean(state.searchQuery);
     const detailType = state.breadcrumb[state.breadcrumb.length - 1]?.type;
-    const showPlaybackActions = detailType === "movie" || detailType === "episode";
+    const showPlaybackActions = detailType === "movie" || detailType === "episode" || detailType === "series";
     const showSectionHeader = !showHome && !showSearchFilters;
     const canGoBack = state.breadcrumb.length > 0;
     ui.searchFilters.classList.toggle("hidden", !showSearchFilters);
@@ -1885,149 +1892,6 @@
     });
     status.replaceChildren(retry);
   }
-  // src/sidebar/seasonMenu.ts
-  var selectorQuery = "[data-season-selector]";
-  var triggerQuery = "[data-season-menu-trigger]";
-  var optionQuery = "[data-season-option]";
-  var labelQuery = "[data-season-menu-label]";
-  var listenersInstalled = false;
-  var selectionHandler = null;
-  var labelUpdateFrame = null;
-  function setupSeasonMenu(onSelect) {
-    selectionHandler = onSelect;
-    if (listenersInstalled) {
-      return;
-    }
-    listenersInstalled = true;
-    document.addEventListener("click", handleDocumentClick);
-    document.addEventListener("keydown", handleDocumentKeydown);
-    window.addEventListener("resize", scheduleSeasonMenuLabelUpdate, { passive: true });
-  }
-  function scheduleSeasonMenuLabelUpdate() {
-    updateSeasonMenuLabels();
-    if (labelUpdateFrame !== null) {
-      cancelAnimationFrame(labelUpdateFrame);
-    }
-    labelUpdateFrame = requestAnimationFrame(() => {
-      labelUpdateFrame = null;
-      updateSeasonMenuLabels();
-    });
-  }
-  function updateSeasonMenuLabels() {
-    document.querySelectorAll(labelQuery).forEach((label) => {
-      label.classList.toggle("season-selector-label--truncated", label.scrollWidth > label.clientWidth + 1);
-    });
-  }
-  function handleDocumentClick(event) {
-    const target = event.target instanceof Element ? event.target : null;
-    const option = target?.closest(optionQuery);
-    if (option) {
-      const seasonId = option.dataset.seasonOption;
-      if (!seasonId) {
-        return;
-      }
-      closeSeasonMenus();
-      selectionHandler?.(seasonId);
-      window.setTimeout(() => {
-        document.querySelector(triggerQuery)?.focus();
-      }, 0);
-      return;
-    }
-    const trigger = target?.closest(triggerQuery);
-    if (trigger) {
-      const selector = trigger.closest(selectorQuery);
-      if (!selector) {
-        return;
-      }
-      const shouldOpen = trigger.getAttribute("aria-expanded") !== "true";
-      closeSeasonMenus(selector);
-      setSeasonMenuOpen(selector, shouldOpen, shouldOpen ? "selected" : null);
-      return;
-    }
-    closeSeasonMenus();
-  }
-  function handleDocumentKeydown(event) {
-    const target = event.target instanceof Element ? event.target : null;
-    const trigger = target?.closest(triggerQuery);
-    if (trigger) {
-      handleTriggerKeydown(event, trigger);
-      return;
-    }
-    const option = target?.closest(optionQuery);
-    if (option) {
-      handleOptionKeydown(event, option);
-    }
-  }
-  function handleTriggerKeydown(event, trigger) {
-    const selector = trigger.closest(selectorQuery);
-    if (!selector) {
-      return;
-    }
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      closeSeasonMenus(selector);
-      setSeasonMenuOpen(selector, true, event.key === "ArrowDown" ? "selected" : "last");
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      setSeasonMenuOpen(selector, false);
-    }
-  }
-  function handleOptionKeydown(event, option) {
-    const selector = option.closest(selectorQuery);
-    if (!selector) {
-      return;
-    }
-    const options = Array.from(selector.querySelectorAll(optionQuery));
-    const currentIndex = options.indexOf(option);
-    if (event.key === "Escape") {
-      event.preventDefault();
-      setSeasonMenuOpen(selector, false);
-      selector.querySelector(triggerQuery)?.focus();
-      return;
-    }
-    if (event.key === "Tab") {
-      setSeasonMenuOpen(selector, false);
-      return;
-    }
-    let nextIndex = null;
-    if (event.key === "ArrowDown") {
-      nextIndex = (currentIndex + 1) % options.length;
-    } else if (event.key === "ArrowUp") {
-      nextIndex = (currentIndex - 1 + options.length) % options.length;
-    } else if (event.key === "Home") {
-      nextIndex = 0;
-    } else if (event.key === "End") {
-      nextIndex = options.length - 1;
-    }
-    if (nextIndex !== null) {
-      event.preventDefault();
-      options[nextIndex]?.focus();
-    }
-  }
-  function closeSeasonMenus(except) {
-    document.querySelectorAll(selectorQuery).forEach((selector) => {
-      if (selector !== except) {
-        setSeasonMenuOpen(selector, false);
-      }
-    });
-  }
-  function setSeasonMenuOpen(selector, open, focusTarget = null) {
-    const trigger = selector.querySelector(triggerQuery);
-    const menu = selector.querySelector("[data-season-menu]");
-    if (!trigger || !menu) {
-      return;
-    }
-    trigger.setAttribute("aria-expanded", String(open));
-    menu.classList.toggle("hidden", !open);
-    selector.classList.toggle("season-selector--open", open);
-    if (!open || !focusTarget) {
-      return;
-    }
-    const options = Array.from(menu.querySelectorAll(optionQuery));
-    const target = focusTarget === "last" ? options[options.length - 1] : options.find((item) => item.getAttribute("aria-selected") === "true") || options[0];
-    target?.focus();
-  }
-
   // src/sidebar/views/elements.ts
   function buildDisclosureChevron() {
     const namespace = "http://www.w3.org/2000/svg";
@@ -2065,22 +1929,22 @@
     renderPlayableDetailActions(item);
     setBackdropDetail(item);
   }
-  function renderSeriesDetails(item, seasons, selectedSeasonId, episodes, nextUpItem, episodeLoadState) {
-    const nextUpLabel = nextUpItem ? getSeriesPlayLabel(nextUpItem) : "";
-    const details = buildMediaDetails(item, buildMediaDetailsViewModel(item, seasons.length), nextUpItem, nextUpLabel);
+  function renderSeriesDetails(item, seasons, expandedSeasonId, episodes, playbackItem, episodeLoadState) {
+    const details = buildMediaDetails(item, buildMediaDetailsViewModel(item, seasons.length), null, "", false);
     details.classList.add("series-details");
-    details.appendChild(buildSeriesEpisodesSection(seasons, selectedSeasonId, episodes, episodeLoadState));
+    details.appendChild(buildSeriesSeasonsSection(seasons, expandedSeasonId, episodes, episodeLoadState));
     replaceContent(details);
+    if (playbackItem) {
+      renderPlayableDetailActions(playbackItem, true);
+    }
     setBackdropDetail(item);
-    scheduleSeasonMenuLabelUpdate();
   }
-  function renderSeriesEpisodes(seasons, selectedSeasonId, episodes, episodeLoadState) {
-    const currentSection = ui.content.querySelector(".series-episodes");
+  function renderSeriesSeasons(seasons, expandedSeasonId, episodes, episodeLoadState) {
+    const currentSection = ui.content.querySelector(".series-seasons");
     if (!currentSection) {
       return false;
     }
-    currentSection.replaceWith(buildSeriesEpisodesSection(seasons, selectedSeasonId, episodes, episodeLoadState));
-    scheduleSeasonMenuLabelUpdate();
+    currentSection.replaceWith(buildSeriesSeasonsSection(seasons, expandedSeasonId, episodes, episodeLoadState));
     return true;
   }
   function buildMediaDetails(item, viewModel, playbackItem, playbackLabel = "", artworkClickable = true) {
@@ -2090,22 +1954,70 @@
     details.appendChild(buildMediaDetailInfo(viewModel));
     return details;
   }
-  function renderPlayableDetailActions(item) {
+  function renderPlayableDetailActions(item, showSeriesTarget = false) {
     const play = document.createElement("button");
     play.className = "media-detail-action media-detail-action--primary";
     play.type = "button";
     applyDetailPlaybackContext(play, item);
     const playLabel = getPlayActionLabel(item);
-    play.setAttribute("aria-label", `${playLabel} ${String(item.Name || "video")}`);
-    play.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M4.5 2.8c0-.6.7-.9 1.2-.6l6 4c.4.3.4.9 0 1.2l-6 4c-.5.3-1.2 0-1.2-.6v-8Z" fill="currentColor"/></svg><span>${playLabel}</span>`;
+    const targetLabel = String(item.Name || "video");
+    play.setAttribute("aria-label", `${playLabel} ${targetLabel}`);
+    play.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M4.5 2.8c0-.6.7-.9 1.2-.6l6 4c.4.3.4.9 0 1.2l-6 4c-.5.3-1.2 0-1.2-.6v-8Z" fill="currentColor"/></svg>';
+    if (showSeriesTarget) {
+      play.classList.add("media-detail-action--icon");
+    } else {
+      play.appendChild(buildDetailActionLabel(playLabel));
+    }
     const queue = document.createElement("button");
     queue.className = "media-detail-action media-detail-action--secondary";
     queue.type = "button";
     applyDetailQueueContext(queue, item);
-    queue.setAttribute("aria-label", `Queue ${String(item.Name || "video")}`);
-    queue.innerHTML = '<svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true"><path d="M2.2 4h7.2M2.2 7.5h7.2M2.2 11h4.6M11.7 8.8v4.4M9.5 11h4.4" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/></svg><span>Queue</span>';
-    ui.bottomDetailActions.replaceChildren(play, queue);
+    queue.setAttribute("aria-label", `Queue ${targetLabel}`);
+    queue.innerHTML = '<svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true"><path d="M2.2 4h7.2M2.2 7.5h7.2M2.2 11h4.6M11.7 8.8v4.4M9.5 11h4.4" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/></svg>';
+    if (showSeriesTarget) {
+      queue.classList.add("media-detail-action--icon");
+    } else {
+      queue.appendChild(buildDetailActionLabel("Queue"));
+    }
+    const content = showSeriesTarget ? [buildSeriesPlaybackTarget(item), play, queue] : [play, queue];
+    ui.bottomDetailActions.replaceChildren(...content);
+    ui.bottomDetailActions.classList.toggle("media-detail-actions--series", showSeriesTarget);
     ui.bottomDetailActions.classList.remove("hidden");
+  }
+  function buildDetailActionLabel(label) {
+    const element = document.createElement("span");
+    element.textContent = label;
+    return element;
+  }
+  function buildSeriesPlaybackTarget(item) {
+    const viewModel = buildSeriesPlaybackTargetViewModel(item);
+    const target = document.createElement("button");
+    target.className = "series-playback-target";
+    target.type = "button";
+    target.dataset.seriesPlaybackTarget = item.Id || "";
+    target.dataset.name = viewModel.title;
+    target.setAttribute("aria-label", `View episode details: ${viewModel.title}, ${viewModel.metadata}`);
+    const artwork = document.createElement("div");
+    artwork.className = "series-playback-target-artwork";
+    const image = document.createElement("img");
+    image.className = "series-playback-target-image list-thumb";
+    image.src = getImageUrl(item.Id || "", "Primary", 240);
+    image.dataset.fallback = getImageUrl(item.SeriesId || "", "Thumb", 240);
+    image.dataset.itemId = item.SeriesId || "";
+    image.dataset.type = "Series";
+    image.alt = "";
+    artwork.appendChild(image);
+    const copy = document.createElement("div");
+    copy.className = "series-playback-target-copy";
+    const title = document.createElement("span");
+    title.className = "series-playback-target-title";
+    title.textContent = viewModel.title;
+    const metadata = document.createElement("span");
+    metadata.className = "series-playback-target-metadata";
+    metadata.textContent = viewModel.metadata;
+    copy.append(title, metadata);
+    target.append(artwork, copy);
+    return target;
   }
   function buildMediaFileInfo(sources) {
     const section = document.createElement("section");
@@ -2278,23 +2190,66 @@
     element.dataset.episodeIndex = item.IndexNumber === undefined || item.IndexNumber === null ? "" : String(item.IndexNumber);
     element.setAttribute("data-clickable", "");
   }
-  function buildSeriesEpisodesSection(seasons, selectedSeasonId, episodes, loadState) {
+  function buildSeriesSeasonsSection(seasons, expandedSeasonId, episodes, loadState) {
     const section = document.createElement("section");
-    section.className = "series-episodes";
-    if (seasons.length > 0) {
-      section.appendChild(buildSeasonSelector(seasons, selectedSeasonId));
+    section.className = "series-seasons";
+    section.setAttribute("aria-label", "Seasons");
+    if (seasons.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "series-season-empty";
+      empty.textContent = "No seasons available.";
+      section.appendChild(empty);
+      return section;
     }
+    const list = document.createElement("div");
+    list.className = "series-season-list";
+    seasons.forEach((season, index) => {
+      const expanded = season.Id === expandedSeasonId;
+      list.appendChild(buildSeason(season, index, expanded, expanded ? episodes : [], expanded ? loadState : "ready"));
+    });
+    section.appendChild(list);
+    return section;
+  }
+  function buildSeason(season, index, expanded, episodes, loadState) {
+    const item = document.createElement("section");
+    item.className = "series-season";
+    item.dataset.seasonId = season.Id || "";
+    const heading = document.createElement("h3");
+    heading.className = "series-season-heading";
+    const trigger = document.createElement("button");
+    trigger.className = "series-season-trigger";
+    trigger.type = "button";
+    trigger.dataset.seasonToggle = season.Id || "";
+    trigger.setAttribute("data-clickable", "");
+    trigger.setAttribute("aria-expanded", String(expanded));
+    trigger.setAttribute("aria-controls", `series-season-panel-${index}`);
+    const label = document.createElement("span");
+    label.className = "series-season-label";
+    label.textContent = String(season.Name || "Season");
+    trigger.append(label, buildDisclosureChevron());
+    heading.appendChild(trigger);
+    const panel = document.createElement("div");
+    panel.id = `series-season-panel-${index}`;
+    panel.className = "series-season-panel";
+    panel.hidden = !expanded;
+    if (expanded) {
+      appendSeasonEpisodes(panel, episodes, loadState);
+    }
+    item.append(heading, panel);
+    return item;
+  }
+  function appendSeasonEpisodes(panel, episodes, loadState) {
     const status = buildEpisodeLoadStatus(loadState);
     if (status) {
-      section.appendChild(status);
-      return section;
+      panel.appendChild(status);
+      return;
     }
     if (episodes.length === 0) {
       const empty = document.createElement("p");
       empty.className = "series-episode-empty";
       empty.textContent = "No episodes in this season.";
-      section.appendChild(empty);
-      return section;
+      panel.appendChild(empty);
+      return;
     }
     const list = buildMediaList(episodes, {
       showSeriesName: false,
@@ -2303,51 +2258,7 @@
       episodeRow: true
     });
     list.classList.add("series-episode-list");
-    section.appendChild(list);
-    return section;
-  }
-  function buildSeasonSelector(seasons, selectedSeasonId) {
-    const controls = document.createElement("div");
-    controls.className = "series-episodes-controls";
-    const selector = document.createElement("div");
-    selector.className = "season-selector";
-    selector.dataset.seasonSelector = "";
-    const selectedSeason = seasons.find((season) => season.Id === selectedSeasonId) || seasons[0];
-    const trigger = document.createElement("button");
-    trigger.className = "season-selector-trigger";
-    trigger.type = "button";
-    trigger.dataset.seasonMenuTrigger = "";
-    trigger.setAttribute("data-clickable", "");
-    trigger.setAttribute("aria-label", `Choose season, selected ${String(selectedSeason?.Name || "Season")}`);
-    trigger.setAttribute("aria-haspopup", "listbox");
-    trigger.setAttribute("aria-expanded", "false");
-    trigger.setAttribute("aria-controls", "season-selector-menu");
-    const label = document.createElement("span");
-    label.className = "season-selector-label";
-    label.dataset.seasonMenuLabel = "";
-    label.textContent = String(selectedSeason?.Name || "Season");
-    trigger.append(label, buildDisclosureChevron());
-    const menu = document.createElement("div");
-    menu.id = "season-selector-menu";
-    menu.className = "season-selector-menu hidden";
-    menu.dataset.seasonMenu = "";
-    menu.setAttribute("role", "listbox");
-    menu.setAttribute("aria-label", "Season");
-    seasons.forEach((season) => {
-      const option = document.createElement("button");
-      option.className = "season-selector-option";
-      option.type = "button";
-      option.dataset.seasonOption = season.Id || "";
-      option.setAttribute("data-clickable", "");
-      option.setAttribute("role", "option");
-      option.setAttribute("aria-selected", String(season.Id === selectedSeason?.Id));
-      option.tabIndex = -1;
-      option.textContent = String(season.Name || "Season");
-      menu.appendChild(option);
-    });
-    selector.append(trigger, menu);
-    controls.appendChild(selector);
-    return controls;
+    panel.appendChild(list);
   }
   function buildEpisodeLoadStatus(loadState) {
     if (loadState === "loading") {
@@ -2772,18 +2683,30 @@
         return null;
       }
     }
+    async function loadFirstEpisode(userId, seriesId) {
+      try {
+        const endpoint = buildSeriesFirstEpisodeEndpoint(userId, seriesId);
+        const data = await port.requestJson("GET", endpoint);
+        return (data?.Items || []).find((item) => item.Type === "Episode") || null;
+      } catch {
+        return null;
+      }
+    }
+    async function loadPlaybackItem(userId, seriesId) {
+      return await loadNextUp(userId, seriesId) || await loadFirstEpisode(userId, seriesId);
+    }
     return {
       loadItem: (itemId) => port.fetchItemDetails(itemId),
       async loadSeries(userId, seriesId) {
         const seasonsEndpoint = buildSeasonsEndpoint(userId, seriesId);
-        const [details, nextUpItem, seasonsData] = await Promise.all([
+        const [details, playbackItem, seasonsData] = await Promise.all([
           port.fetchItemDetails(seriesId),
-          loadNextUp(userId, seriesId),
+          loadPlaybackItem(userId, seriesId),
           port.requestJson("GET", seasonsEndpoint)
         ]);
         return {
           details,
-          nextUpItem,
+          playbackItem,
           seasons: seasonsData?.Items || []
         };
       },
@@ -2793,13 +2716,6 @@
         return data?.Items || [];
       }
     };
-  }
-  function getDefaultSeasonId(seasons, nextUpItem) {
-    const nextUpSeasonId = nextUpItem?.SeasonId || nextUpItem?.ParentId || "";
-    if (nextUpSeasonId && seasons.some((season) => season.Id === nextUpSeasonId)) {
-      return nextUpSeasonId;
-    }
-    return seasons.find((season) => (season.IndexNumber || 0) > 0)?.Id || seasons[0]?.Id || "";
   }
 
   // src/sidebar/requests/home.ts
@@ -3159,17 +3075,15 @@
     sidebarStore.setRetryOperation({ kind: "series", id: options.seriesId, name: options.seriesName });
     const cachedSeries = seriesDetailsCache.get(cacheKey);
     if (cachedSeries) {
+      cachedSeries.expandedSeasonId = "";
       setCurrentSeriesView(cachedSeries);
       hideLoading();
-      renderSeriesView(cachedSeries, getSeriesEpisodeLoadState(cachedSeries), 0);
-      if (cachedSeries.selectedSeasonId && !cachedSeries.episodesBySeason.has(cachedSeries.selectedSeasonId)) {
-        loadSeriesSeason(cachedSeries, cachedSeries.selectedSeasonId, 0, false);
-      }
+      renderSeriesView(cachedSeries, "ready", 0);
       return;
     }
     showLoading("details");
     try {
-      const { details, nextUpItem, seasons } = await sidebarRequests.details.loadSeries(state.userId, options.seriesId);
+      const { details, playbackItem, seasons } = await sidebarRequests.details.loadSeries(state.userId, options.seriesId);
       if (!viewRequests.isCurrent(requestId)) {
         return;
       }
@@ -3179,20 +3093,15 @@
       const view = {
         details,
         seasons,
-        nextUpItem,
-        selectedSeasonId: getDefaultSeasonId(seasons, nextUpItem),
+        playbackItem,
+        expandedSeasonId: "",
         episodesBySeason: new Map
       };
       seriesDetailsCache.set(cacheKey, view);
       setCurrentSeriesView(view);
       updateTitle(String(details.Name || options.seriesName));
       hideLoading();
-      if (view.selectedSeasonId) {
-        renderSeriesView(view, "loading", 0);
-        loadSeriesSeason(view, view.selectedSeasonId, 0, false);
-      } else {
-        renderSeriesView(view, "ready", 0);
-      }
+      renderSeriesView(view, "ready", 0);
     } catch (error) {
       if (!viewRequests.isCurrent(requestId)) {
         return;
@@ -3200,30 +3109,33 @@
       showError(error instanceof Error ? error.message : "Failed to load series details");
     }
   }
-  async function loadSeriesSeason(view, seasonId, scrollTop, forceReload) {
-    view.selectedSeasonId = seasonId;
-    if (state.currentSeries) {
-      state.currentSeries.selectedSeasonId = seasonId;
-    }
+  async function expandSeriesSeason(view, seasonId, forceReload) {
+    setExpandedSeriesSeason(view, seasonId);
     const cachedEpisodes = forceReload ? undefined : view.episodesBySeason.get(seasonId);
     if (cachedEpisodes) {
-      renderSeriesSeason(view, "ready", scrollTop);
+      renderSeriesSeason(view, "ready", window.scrollY, true);
       return;
     }
     const requestId = seriesSeasonRequests.begin();
-    renderSeriesSeason(view, "loading", scrollTop);
+    renderSeriesSeason(view, "loading", window.scrollY, true);
     try {
       const episodes = await sidebarRequests.details.loadEpisodes(state.userId, view.details.Id || "", seasonId);
-      if (!seriesSeasonRequests.isCurrent(requestId) || currentSeriesView !== view || view.selectedSeasonId !== seasonId) {
+      if (!seriesSeasonRequests.isCurrent(requestId) || currentSeriesView !== view || view.expandedSeasonId !== seasonId) {
         return;
       }
       view.episodesBySeason.set(seasonId, episodes);
-      renderSeriesSeason(view, "ready", scrollTop);
+      renderSeriesSeason(view, "ready", window.scrollY, true);
     } catch {
       if (!seriesSeasonRequests.isCurrent(requestId) || currentSeriesView !== view) {
         return;
       }
-      renderSeriesSeason(view, "error", scrollTop);
+      renderSeriesSeason(view, "error", window.scrollY, true);
+    }
+  }
+  function setExpandedSeriesSeason(view, seasonId) {
+    view.expandedSeasonId = seasonId;
+    if (state.currentSeries) {
+      state.currentSeries.expandedSeasonId = seasonId;
     }
   }
   function setCurrentSeriesView(view) {
@@ -3231,23 +3143,30 @@
     state.currentSeries = {
       id: view.details.Id || "",
       name: String(view.details.Name || "Series"),
-      selectedSeasonId: view.selectedSeasonId
+      expandedSeasonId: view.expandedSeasonId
     };
   }
-  function getSeriesEpisodeLoadState(view) {
-    return !view.selectedSeasonId || view.episodesBySeason.has(view.selectedSeasonId) ? "ready" : "loading";
-  }
   function renderSeriesView(view, loadState, scrollTop) {
-    renderSeriesDetails(view.details, view.seasons, view.selectedSeasonId, view.episodesBySeason.get(view.selectedSeasonId) || [], view.nextUpItem, loadState);
+    renderSeriesDetails(view.details, view.seasons, view.expandedSeasonId, view.episodesBySeason.get(view.expandedSeasonId) || [], view.playbackItem, loadState);
     requestAnimationFrame(() => window.scrollTo(0, scrollTop));
   }
-  function renderSeriesSeason(view, loadState, scrollTop) {
-    const updated = renderSeriesEpisodes(view.seasons, view.selectedSeasonId, view.episodesBySeason.get(view.selectedSeasonId) || [], loadState);
+  function renderSeriesSeason(view, loadState, scrollTop, scrollToExpandedSeason) {
+    const updated = renderSeriesSeasons(view.seasons, view.expandedSeasonId, view.episodesBySeason.get(view.expandedSeasonId) || [], loadState);
     if (!updated) {
       renderSeriesView(view, loadState, scrollTop);
       return;
     }
-    requestAnimationFrame(() => window.scrollTo(0, scrollTop));
+    scheduleSeriesSeasonScroll(view.expandedSeasonId, scrollTop, scrollToExpandedSeason);
+  }
+  function scheduleSeriesSeasonScroll(expandedSeasonId, scrollTop, scrollToExpandedSeason) {
+    requestAnimationFrame(() => {
+      if (!scrollToExpandedSeason) {
+        window.scrollTo(0, scrollTop);
+        return;
+      }
+      const expandedSeason = [...document.querySelectorAll(".series-season")].find((season) => season.dataset.seasonId === expandedSeasonId);
+      expandedSeason?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   }
   async function reloadItems(breadcrumb) {
     await fetchAndRenderLibraryItems({
@@ -3351,19 +3270,25 @@
       addBreadcrumb: false
     });
   }
-  async function selectSeriesSeason(seasonId) {
+  async function toggleSeriesSeason(seasonId) {
     const view = currentSeriesView;
     if (!view || !view.seasons.some((season) => season.Id === seasonId)) {
       return;
     }
-    await loadSeriesSeason(view, seasonId, window.scrollY, false);
-  }
-  async function retrySelectedSeriesSeason() {
-    const view = currentSeriesView;
-    if (!view?.selectedSeasonId) {
+    if (view.expandedSeasonId === seasonId) {
+      seriesSeasonRequests.cancel();
+      setExpandedSeriesSeason(view, "");
+      renderSeriesSeason(view, "ready", window.scrollY, false);
       return;
     }
-    await loadSeriesSeason(view, view.selectedSeasonId, window.scrollY, true);
+    await expandSeriesSeason(view, seasonId, false);
+  }
+  async function retryExpandedSeriesSeason() {
+    const view = currentSeriesView;
+    if (!view?.expandedSeasonId) {
+      return;
+    }
+    await expandSeriesSeason(view, view.expandedSeasonId, true);
   }
   async function performSearch(query) {
     const requestId = beginViewRequest();
@@ -3693,7 +3618,6 @@
   var backdropInteractionListenersInstalled = false;
   function setupEventListeners() {
     setupBackdropInteractionListeners();
-    setupSeasonMenu((seasonId) => void selectSeriesSeason(seasonId));
     ui.loginForm.addEventListener("submit", handleLogin);
     ui.backBtn.addEventListener("click", handleBack);
     ui.retryBtn.addEventListener("click", handleRetry);
@@ -3760,8 +3684,14 @@
     if (handleDetailPlayClick(target)) {
       return;
     }
+    if (handleSeriesPlaybackTargetClick(target)) {
+      return;
+    }
+    if (handleSeriesSeasonToggle(target)) {
+      return;
+    }
     if (target?.closest("[data-season-retry]")) {
-      retrySelectedSeriesSeason();
+      retryExpandedSeriesSeason();
       return;
     }
     if (handleHomeLibraryClick(target)) {
@@ -3775,6 +3705,28 @@
       return;
     }
     handleListCardSelection(card);
+  }
+  function handleSeriesPlaybackTargetClick(target) {
+    const button = target?.closest("[data-series-playback-target]");
+    if (!button) {
+      return false;
+    }
+    const episodeId = button.dataset.seriesPlaybackTarget || "";
+    if (episodeId) {
+      loadEpisode(episodeId, button.dataset.name || "Episode");
+    }
+    return true;
+  }
+  function handleSeriesSeasonToggle(target) {
+    const trigger = target?.closest("[data-season-toggle]");
+    if (!trigger) {
+      return false;
+    }
+    const seasonId = trigger.dataset.seasonToggle || "";
+    if (seasonId) {
+      toggleSeriesSeason(seasonId);
+    }
+    return true;
   }
   function handleDetailQueueClick(target) {
     const button = target?.closest("[data-detail-queue]");

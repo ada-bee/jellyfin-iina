@@ -31,6 +31,11 @@ export function buildEpisodesEndpoint(userId: string, seriesId: string, seasonId
         `&seasonId=${encodeURIComponent(seasonId)}&fields=${FIELDS_EPISODES}`;
 }
 
+export function buildSeriesFirstEpisodeEndpoint(userId: string, seriesId: string): string {
+    return `/Shows/${encodeURIComponent(seriesId)}/Episodes?userId=${encodeURIComponent(userId)}` +
+        `&startIndex=0&limit=1&fields=${FIELDS_EPISODES}`;
+}
+
 export function buildLatestItemsEndpoint(userId: string, itemType: string, limit: number): string {
     return `/Items/Latest?userId=${encodeURIComponent(userId)}` +
         `&includeItemTypes=${encodeURIComponent(itemType)}&limit=${limit}` +
@@ -74,7 +79,8 @@ export function buildSeasonsEndpoint(userId: string, seriesId: string): string {
 
 export function buildSeriesNextUpEndpoint(userId: string, seriesId: string): string {
     return `/Shows/NextUp?userId=${encodeURIComponent(userId)}` +
-        `&seriesId=${encodeURIComponent(seriesId)}&limit=1&fields=${FIELDS_HOME_ITEMS}`;
+        `&seriesId=${encodeURIComponent(seriesId)}&limit=1&fields=${FIELDS_HOME_ITEMS}` +
+        "&disableFirstEpisode=true&enableResumable=true";
 }
 
 export function buildItemDetailsEndpoint(

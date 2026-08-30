@@ -27,7 +27,7 @@ export {
     renderEpisodeDetails,
     renderMovieDetails,
     renderSeriesDetails,
-    renderSeriesEpisodes
+    renderSeriesSeasons
 } from "./details";
 export { renderHomeSections } from "./home";
 export { renderSearchResults, setSearchFilter } from "./search";
