@@ -53,18 +53,19 @@ body {
 .backdrop-image {
     position: absolute;
     left: 0;
-    top: 0;
+    top: 50%;
     width: var(--backdrop-width);
     aspect-ratio: 352 / 225;
     object-fit: cover;
     object-position: center;
+    transform: translateY(-50%);
     -webkit-mask-image:
         linear-gradient(to right, black 0%, black 85%, transparent 100%),
-        linear-gradient(to bottom, black 0%, black 80%, transparent 100%);
+        linear-gradient(to bottom, transparent 0%, black 20%, black 80%, transparent 100%);
     -webkit-mask-composite: source-in;
     mask-image:
         linear-gradient(to right, black 0%, black 85%, transparent 100%),
-        linear-gradient(to bottom, black 0%, black 80%, transparent 100%);
+        linear-gradient(to bottom, transparent 0%, black 20%, black 80%, transparent 100%);
     mask-composite: intersect;
 }
 
