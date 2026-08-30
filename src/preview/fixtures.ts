@@ -197,3 +197,20 @@ export const seasonEpisodes = [
         Overview: "With time running short, the crew prepares one last attempt to close the line."
     }
 ];
+
+export const previewEpisode: JellyfinBaseItem = {
+    ...seasonEpisodes[2],
+    OfficialRating: "TV-14",
+    MediaSources: [{
+        Id: "dead-line-1080",
+        DefaultAudioStreamIndex: 1,
+        DefaultSubtitleStreamIndex: 3,
+        MediaStreams: [
+            { Type: "Video", Width: 1920, Height: 1080, Codec: "h264", BitRate: 7_500_000 },
+            { Type: "Audio", Index: 1, Language: "eng", Codec: "eac3", Channels: 6 },
+            { Type: "Audio", Index: 2, Language: "ces", Codec: "aac", Channels: 2 },
+            { Type: "Subtitle", Index: 3, Language: "eng", Codec: "subrip" },
+            { Type: "Subtitle", Index: 4, Language: "ces", Codec: "subrip" }
+        ]
+    }]
+};

@@ -156,6 +156,20 @@ describe("sidebar view models", () => {
         expect(buildMediaDetailsViewModel(series, 2).metadata).toBe("2024– · 2 seasons");
     });
 
+    test("builds episode detail metadata", () => {
+        const episode: JellyfinBaseItem = {
+            Type: "Episode",
+            SeriesName: "North Station",
+            ParentIndexNumber: 2,
+            IndexNumber: 3,
+            RunTimeTicks: 48 * TICKS_PER_MINUTE,
+            OfficialRating: "TV-14"
+        };
+
+        expect(buildMediaDetailsViewModel(episode).metadata)
+            .toBe("North Station · S02 E03 · 48m · TV-14");
+    });
+
     test("formats movie video, audio, and subtitle streams", () => {
         const movie: JellyfinBaseItem = {
             Type: "Movie",

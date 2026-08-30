@@ -2,6 +2,7 @@ export const PREVIEW_NAMES = [
     "home",
     "search",
     "movie",
+    "episode",
     "series",
     "login",
     "loading",

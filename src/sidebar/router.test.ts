@@ -40,6 +40,26 @@ describe("sidebar router", () => {
         expect(details.stack.map(route => route.kind)).toEqual(["home", "library", "series"]);
     });
 
+    test("keeps a series behind episode details", () => {
+        const series = navigateToDetails(createRouterState(), {
+            kind: "series",
+            id: "series-1",
+            name: "North Station"
+        });
+        const episode = navigateToDetails(series, {
+            kind: "episode",
+            id: "episode-1",
+            name: "The Plan"
+        });
+
+        expect(episode.stack.map(route => route.kind)).toEqual(["home", "series", "episode"]);
+        expect(getCurrentRoute(navigateBack(episode))).toEqual({
+            kind: "series",
+            id: "series-1",
+            name: "North Station"
+        });
+    });
+
     test("does not navigate behind home", () => {
         const home = createRouterState();
         expect(navigateBack(home)).toBe(home);

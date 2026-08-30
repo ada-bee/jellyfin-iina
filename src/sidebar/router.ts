@@ -9,6 +9,7 @@ export type BrowseRoute =
         collectionType: string;
     }
     | { kind: "movie"; id: string; name: string }
+    | { kind: "episode"; id: string; name: string }
     | { kind: "series"; id: string; name: string };
 
 export interface SearchRoute {
@@ -60,7 +61,7 @@ export function navigateLibrary(
 
 export function navigateToDetails(
     router: RouterState,
-    route: Extract<BrowseRoute, { kind: "movie" | "series" }>
+    route: Extract<BrowseRoute, { kind: "movie" | "episode" | "series" }>
 ): RouterState {
     const stack = [...router.stack];
     if (getCurrentRoute(router).kind === "search") {
@@ -120,7 +121,10 @@ export function navigateBack(router: RouterState): RouterState {
 
 export function getBreadcrumbs(router: RouterState): BreadcrumbEntry[] {
     return router.stack.filter((route): route is BreadcrumbEntry => (
-        route.kind === "library" || route.kind === "movie" || route.kind === "series"
+        route.kind === "library"
+        || route.kind === "movie"
+        || route.kind === "episode"
+        || route.kind === "series"
     ));
 }
 

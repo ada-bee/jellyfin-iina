@@ -20,6 +20,10 @@ describe("sidebar store compatibility state", () => {
         store.navigateToDetails({ kind: "movie", id: "movie-1", name: "Signal Fire" });
         expect(store.state.searchQuery).toBe("");
         expect(store.state.breadcrumb.map(entry => entry.type)).toEqual(["library", "movie"]);
+
+        store.navigateToDetails({ kind: "episode", id: "episode-1", name: "The Plan" });
+        expect(store.state.breadcrumb.map(entry => entry.type))
+            .toEqual(["library", "movie", "episode"]);
     });
 
     test("stores retry as typed data", () => {

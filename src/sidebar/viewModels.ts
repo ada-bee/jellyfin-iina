@@ -192,7 +192,8 @@ export function getProgressPercent(item: JellyfinBaseItem): number | null {
 }
 
 function opensDetails(item: JellyfinBaseItem, options: ListCardOptions): boolean {
-    return !options.directPlay && (item.Type === "Movie" || item.Type === "Series");
+    return !options.directPlay
+        && (item.Type === "Movie" || item.Type === "Series" || item.Type === "Episode");
 }
 
 function getEpisodeRowNumber(item: JellyfinBaseItem): string {
@@ -204,7 +205,16 @@ function getEpisodeRowNumber(item: JellyfinBaseItem): string {
 
 function getMediaDetailMetadata(item: JellyfinBaseItem, seasonCount: number): string {
     const metadata: string[] = [];
-    if (item.ProductionYear) {
+    if (item.Type === "Episode") {
+        if (item.SeriesName) {
+            metadata.push(String(item.SeriesName));
+        }
+        metadata.push(formatPaddedEpisodeNumber(item.ParentIndexNumber, item.IndexNumber));
+        const runtime = formatRuntime(item.RunTimeTicks);
+        if (runtime) {
+            metadata.push(runtime);
+        }
+    } else if (item.ProductionYear) {
         metadata.push(getYearLabel(item));
     }
     if (item.Type === "Movie") {

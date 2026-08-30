@@ -85,7 +85,7 @@
     return { stack: router.stack.slice(0, -1) };
   }
   function getBreadcrumbs(router) {
-    return router.stack.filter((route) => route.kind === "library" || route.kind === "movie" || route.kind === "series");
+    return router.stack.filter((route) => route.kind === "library" || route.kind === "movie" || route.kind === "episode" || route.kind === "series");
   }
   function getSearchOrigin(router) {
     if (getCurrentRoute(router).kind !== "search") {
@@ -1090,7 +1090,7 @@
     return percent >= 1 ? percent : null;
   }
   function opensDetails(item, options) {
-    return !options.directPlay && (item.Type === "Movie" || item.Type === "Series");
+    return !options.directPlay && (item.Type === "Movie" || item.Type === "Series" || item.Type === "Episode");
   }
   function getEpisodeRowNumber(item) {
     if (item.IndexNumber === undefined || item.IndexNumber === null) {
@@ -1100,7 +1100,16 @@
   }
   function getMediaDetailMetadata(item, seasonCount) {
     const metadata = [];
-    if (item.ProductionYear) {
+    if (item.Type === "Episode") {
+      if (item.SeriesName) {
+        metadata.push(String(item.SeriesName));
+      }
+      metadata.push(formatPaddedEpisodeNumber(item.ParentIndexNumber, item.IndexNumber));
+      const runtime = formatRuntime(item.RunTimeTicks);
+      if (runtime) {
+        metadata.push(runtime);
+      }
+    } else if (item.ProductionYear) {
       metadata.push(getYearLabel(item));
     }
     if (item.Type === "Movie") {
@@ -1804,11 +1813,12 @@
     ui.backBtn.title = `Back from ${title}`;
     const showHome = title === "Home" && state.breadcrumb.length === 0 && !state.searchQuery;
     const showSearchFilters = title === "Search Results" && Boolean(state.searchQuery);
-    const showMovieActions = state.breadcrumb[state.breadcrumb.length - 1]?.type === "movie";
+    const detailType = state.breadcrumb[state.breadcrumb.length - 1]?.type;
+    const showPlaybackActions = detailType === "movie" || detailType === "episode";
     const showSectionHeader = !showHome && !showSearchFilters;
     const canGoBack = state.breadcrumb.length > 0;
     ui.searchFilters.classList.toggle("hidden", !showSearchFilters);
-    ui.bottomSearchField.classList.toggle("hidden", showMovieActions);
+    ui.bottomSearchField.classList.toggle("hidden", showPlaybackActions);
     ui.bottomDetailActions.replaceChildren();
     ui.bottomDetailActions.classList.add("hidden");
     ui.navigationLayer.classList.toggle("hidden", !showSectionHeader);
@@ -2022,14 +2032,20 @@
 
   // src/sidebar/views/details.ts
   function renderMovieDetails(item) {
+    renderPlayableDetails(item, "movie-details");
+  }
+  function renderEpisodeDetails(item) {
+    renderPlayableDetails(item, "episode-details");
+  }
+  function renderPlayableDetails(item, className) {
     const viewModel = buildMediaDetailsViewModel(item);
     const details = buildMediaDetails(item, viewModel, item, "", false);
-    details.classList.add("movie-details");
+    details.classList.add("playable-details", className);
     if (viewModel.mediaFileSources.length > 0) {
       details.appendChild(buildMediaFileInfo(viewModel.mediaFileSources));
     }
     replaceContent(details);
-    renderMovieDetailActions(item);
+    renderPlayableDetailActions(item);
     setBackdropDetail(item);
   }
   function renderSeriesDetails(item, seasons, selectedSeasonId, episodes, nextUpItem, episodeLoadState) {
@@ -2057,19 +2073,19 @@
     details.appendChild(buildMediaDetailInfo(viewModel));
     return details;
   }
-  function renderMovieDetailActions(item) {
+  function renderPlayableDetailActions(item) {
     const play = document.createElement("button");
     play.className = "media-detail-action media-detail-action--primary";
     play.type = "button";
     applyDetailPlaybackContext(play, item);
     const playLabel = getPlayActionLabel(item);
-    play.setAttribute("aria-label", `${playLabel} ${String(item.Name || "movie")}`);
+    play.setAttribute("aria-label", `${playLabel} ${String(item.Name || "video")}`);
     play.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M4.5 2.8c0-.6.7-.9 1.2-.6l6 4c.4.3.4.9 0 1.2l-6 4c-.5.3-1.2 0-1.2-.6v-8Z" fill="currentColor"/></svg><span>${playLabel}</span>`;
     const queue = document.createElement("button");
     queue.className = "media-detail-action media-detail-action--secondary";
     queue.type = "button";
     applyDetailQueueContext(queue, item);
-    queue.setAttribute("aria-label", `Queue ${String(item.Name || "movie")}`);
+    queue.setAttribute("aria-label", `Queue ${String(item.Name || "video")}`);
     queue.innerHTML = '<svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true"><path d="M2.2 4h7.2M2.2 7.5h7.2M2.2 11h4.6M11.7 8.8v4.4M9.5 11h4.4" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/></svg><span>Queue</span>';
     ui.bottomDetailActions.replaceChildren(play, queue);
     ui.bottomDetailActions.classList.remove("hidden");
@@ -2209,10 +2225,12 @@
   function buildMediaDetailImage(item) {
     const image = document.createElement("img");
     image.className = "media-detail-image";
-    image.src = getImageUrl(item.Id || "", "Thumb", 1000);
-    image.dataset.fallback = getImageUrl(item.Id || "", "Backdrop", 1000);
-    image.dataset.itemId = item.Id || "";
-    image.dataset.type = item.Type || "";
+    const isEpisode = item.Type === "Episode";
+    const fallbackItemId = isEpisode && item.SeriesId ? item.SeriesId : item.Id || "";
+    image.src = getImageUrl(item.Id || "", isEpisode ? "Primary" : "Thumb", 1000);
+    image.dataset.fallback = getImageUrl(fallbackItemId, isEpisode ? "Thumb" : "Backdrop", 1000);
+    image.dataset.itemId = fallbackItemId;
+    image.dataset.type = isEpisode && item.SeriesId ? "Series" : item.Type || "";
     image.alt = "";
     return image;
   }
@@ -2902,7 +2920,7 @@
   var seriesSeasonRequests = new LatestRequest;
   var homeViewCache = new RequestCache;
   var libraryViewCache = new RequestCache;
-  var movieDetailsCache = new RequestCache;
+  var playableDetailsCache = new RequestCache;
   var seriesDetailsCache = new RequestCache;
   var currentSeriesView = null;
   function cancelPendingViewRequest() {
@@ -2918,7 +2936,7 @@
   function clearSidebarRequestCaches() {
     homeViewCache.clear();
     libraryViewCache.clear();
-    movieDetailsCache.clear();
+    playableDetailsCache.clear();
     seriesDetailsCache.clear();
     currentSeriesView = null;
     cancelPendingViewRequest();
@@ -3044,42 +3062,56 @@
     const current = state.breadcrumb[state.breadcrumb.length - 1];
     return current?.type === "library" && (ignoreSearch || !state.searchQuery);
   }
-  async function fetchAndRenderMovieDetails(options) {
+  async function fetchAndRenderPlayableDetails(options) {
     currentSeriesView = null;
     state.currentSeries = null;
     if (options.addBreadcrumb) {
-      sidebarStore.navigateToDetails({ kind: "movie", id: options.movieId, name: options.movieName });
+      sidebarStore.navigateToDetails({
+        kind: options.kind,
+        id: options.itemId,
+        name: options.itemName
+      });
     }
     const requestId = beginViewRequest();
-    const cacheKey = `${getSessionCacheKey()}\x00movie\x00${options.movieId}`;
-    const cachedMovie = movieDetailsCache.get(cacheKey);
-    sidebarStore.setRetryOperation({ kind: "movie", id: options.movieId, name: options.movieName });
-    updateTitle(options.movieName);
+    const cacheKey = `${getSessionCacheKey()}\x00${options.kind}\x00${options.itemId}`;
+    const cachedItem = playableDetailsCache.get(cacheKey);
+    sidebarStore.setRetryOperation({ kind: options.kind, id: options.itemId, name: options.itemName });
+    updateTitle(options.itemName);
     window.scrollTo(0, 0);
-    if (cachedMovie) {
+    if (cachedItem) {
       hideLoading();
-      renderMovieDetails(cachedMovie);
+      renderPlayableDetails2(cachedItem, options.kind);
       return;
     }
     showLoading("details");
     try {
-      const movie = await sidebarRequests.details.loadItem(options.movieId);
+      const item = await sidebarRequests.details.loadItem(options.itemId);
       if (!viewRequests.isCurrent(requestId)) {
         return;
       }
-      if (!movie) {
-        throw new Error("Movie details are unavailable");
+      if (!item) {
+        throw new Error(`${getPlayableKindLabel(options.kind)} details are unavailable`);
       }
-      movieDetailsCache.set(cacheKey, movie);
-      updateTitle(String(movie.Name || options.movieName));
+      playableDetailsCache.set(cacheKey, item);
+      updateTitle(String(item.Name || options.itemName));
       hideLoading();
-      renderMovieDetails(movie);
+      renderPlayableDetails2(item, options.kind);
     } catch (error) {
       if (!viewRequests.isCurrent(requestId)) {
         return;
       }
-      showError(error instanceof Error ? error.message : "Failed to load movie details");
+      showError(error instanceof Error ? error.message : `Failed to load ${options.kind} details`);
     }
+  }
+  function renderPlayableDetails2(item, kind) {
+    if (kind === "episode") {
+      renderEpisodeDetails(item);
+      return;
+    }
+    renderMovieDetails(item);
+  }
+  function getPlayableKindLabel(kind) {
+    return kind === "movie" ? "Movie" : "Episode";
   }
   async function fetchAndRenderSeriesDetails(options) {
     if (options.addBreadcrumb) {
@@ -3253,12 +3285,34 @@
     });
   }
   async function loadMovie(movieId, movieName) {
-    await fetchAndRenderMovieDetails({ movieId, movieName, addBreadcrumb: true });
+    await fetchAndRenderPlayableDetails({
+      kind: "movie",
+      itemId: movieId,
+      itemName: movieName,
+      addBreadcrumb: true
+    });
   }
   async function reloadMovie(breadcrumb) {
-    await fetchAndRenderMovieDetails({
-      movieId: breadcrumb.id,
-      movieName: breadcrumb.name,
+    await fetchAndRenderPlayableDetails({
+      kind: "movie",
+      itemId: breadcrumb.id,
+      itemName: breadcrumb.name,
+      addBreadcrumb: false
+    });
+  }
+  async function loadEpisode(episodeId, episodeName) {
+    await fetchAndRenderPlayableDetails({
+      kind: "episode",
+      itemId: episodeId,
+      itemName: episodeName,
+      addBreadcrumb: true
+    });
+  }
+  async function reloadEpisode(breadcrumb) {
+    await fetchAndRenderPlayableDetails({
+      kind: "episode",
+      itemId: breadcrumb.id,
+      itemName: breadcrumb.name,
       addBreadcrumb: false
     });
   }
@@ -3352,6 +3406,9 @@
       case "movie":
         reloadMovie(previous);
         break;
+      case "episode":
+        reloadEpisode(previous);
+        break;
       case "series":
         reloadSeriesDetails(previous);
         break;
@@ -3368,6 +3425,9 @@
         break;
       case "movie":
         reloadMovie(operation);
+        break;
+      case "episode":
+        reloadEpisode(operation);
         break;
       case "series":
         reloadSeriesDetails(operation);
@@ -3588,6 +3648,9 @@
     if (context.type === "Movie" && !context.directPlay) {
       return "open-movie";
     }
+    if (context.type === "Episode" && !context.directPlay) {
+      return "open-episode";
+    }
     return "play";
   }
 
@@ -3698,7 +3761,7 @@
     return true;
   }
   function getDetailPlaybackContext(button) {
-    const details = button.closest(".movie-details") || ui.content.querySelector(".movie-details");
+    const details = button.closest(".playable-details") || ui.content.querySelector(".playable-details");
     return {
       seriesId: button.dataset.seriesId || "",
       seasonId: button.dataset.seasonId || "",
@@ -3767,6 +3830,10 @@
     prepareForDetailsNavigation();
     if (action === "open-movie") {
       loadMovie(id, name);
+      return;
+    }
+    if (action === "open-episode") {
+      loadEpisode(id, name);
       return;
     }
     loadSeriesDetails(id, name);

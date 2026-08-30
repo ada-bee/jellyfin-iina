@@ -24,6 +24,7 @@ export {
     showLibraryGridLoadError
 } from "./collection";
 export {
+    renderEpisodeDetails,
     renderMovieDetails,
     renderSeriesDetails,
     renderSeriesEpisodes

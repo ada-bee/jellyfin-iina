@@ -46,6 +46,7 @@ export type BreadcrumbEntry =
         collectionType: string;
     }
     | { type: "movie"; id: string; name: string }
+    | { type: "episode"; id: string; name: string }
     | { type: "series"; id: string; name: string };
 
 export type RetryOperation =
@@ -57,6 +58,7 @@ export type RetryOperation =
         collectionType: string;
     }
     | { kind: "movie"; id: string; name: string }
+    | { kind: "episode"; id: string; name: string }
     | { kind: "series"; id: string; name: string }
     | { kind: "search"; query: string };
 
@@ -145,7 +147,7 @@ export class SidebarStore {
         this.setRouter(navigateLibrary({ id, name, collectionType }));
     }
 
-    navigateToDetails(route: Extract<SidebarRoute, { kind: "movie" | "series" }>): void {
+    navigateToDetails(route: Extract<SidebarRoute, { kind: "movie" | "episode" | "series" }>): void {
         this.setRouter(navigateToDetails(this.state.router, route));
     }
 

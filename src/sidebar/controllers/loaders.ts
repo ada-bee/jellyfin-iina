@@ -8,6 +8,7 @@ import { sidebarStore, state, type LibraryState } from "../../sidebar/store";
 import {
     appendLibraryGridItems,
     renderEmptyState,
+    renderEpisodeDetails,
     renderHomeSections,
     renderLibraryGrid,
     renderMovieDetails,
@@ -28,7 +29,7 @@ const libraryPageRequests = new LatestRequest();
 const seriesSeasonRequests = new LatestRequest();
 const homeViewCache = new RequestCache<HomeViewData>();
 const libraryViewCache = new RequestCache<LibraryState>();
-const movieDetailsCache = new RequestCache<JellyfinBaseItem>();
+const playableDetailsCache = new RequestCache<JellyfinBaseItem>();
 const seriesDetailsCache = new RequestCache<SeriesViewData>();
 let currentSeriesView: SeriesViewData | null = null;
 
@@ -36,6 +37,13 @@ interface LibraryLoadOptions {
     libraryId: string;
     libraryName: string;
     collectionType: string;
+    addBreadcrumb: boolean;
+}
+
+interface PlayableDetailsLoadOptions {
+    kind: "movie" | "episode";
+    itemId: string;
+    itemName: string;
     addBreadcrumb: boolean;
 }
 
@@ -62,7 +70,7 @@ function beginViewRequest(): number {
 export function clearSidebarRequestCaches(): void {
     homeViewCache.clear();
     libraryViewCache.clear();
-    movieDetailsCache.clear();
+    playableDetailsCache.clear();
     seriesDetailsCache.clear();
     currentSeriesView = null;
     cancelPendingViewRequest();
@@ -209,49 +217,63 @@ function isCurrentLibraryView(ignoreSearch: boolean = false): boolean {
     return current?.type === "library" && (ignoreSearch || !state.searchQuery);
 }
 
-async function fetchAndRenderMovieDetails(options: {
-    movieId: string;
-    movieName: string;
-    addBreadcrumb: boolean;
-}): Promise<void> {
+async function fetchAndRenderPlayableDetails(options: PlayableDetailsLoadOptions): Promise<void> {
     currentSeriesView = null;
     state.currentSeries = null;
     if (options.addBreadcrumb) {
-        sidebarStore.navigateToDetails({ kind: "movie", id: options.movieId, name: options.movieName });
+        sidebarStore.navigateToDetails({
+            kind: options.kind,
+            id: options.itemId,
+            name: options.itemName
+        });
     }
 
     const requestId = beginViewRequest();
-    const cacheKey = `${getSessionCacheKey()}\u0000movie\u0000${options.movieId}`;
-    const cachedMovie = movieDetailsCache.get(cacheKey);
-    sidebarStore.setRetryOperation({ kind: "movie", id: options.movieId, name: options.movieName });
-    updateTitle(options.movieName);
+    const cacheKey = `${getSessionCacheKey()}\u0000${options.kind}\u0000${options.itemId}`;
+    const cachedItem = playableDetailsCache.get(cacheKey);
+    sidebarStore.setRetryOperation({ kind: options.kind, id: options.itemId, name: options.itemName });
+    updateTitle(options.itemName);
     window.scrollTo(0, 0);
 
-    if (cachedMovie) {
+    if (cachedItem) {
         hideLoading();
-        renderMovieDetails(cachedMovie);
+        renderPlayableDetails(cachedItem, options.kind);
         return;
     }
 
     showLoading("details");
     try {
-        const movie = await sidebarRequests.details.loadItem(options.movieId);
+        const item = await sidebarRequests.details.loadItem(options.itemId);
         if (!viewRequests.isCurrent(requestId)) {
             return;
         }
-        if (!movie) {
-            throw new Error("Movie details are unavailable");
+        if (!item) {
+            throw new Error(`${getPlayableKindLabel(options.kind)} details are unavailable`);
         }
-        movieDetailsCache.set(cacheKey, movie);
-        updateTitle(String(movie.Name || options.movieName));
+        playableDetailsCache.set(cacheKey, item);
+        updateTitle(String(item.Name || options.itemName));
         hideLoading();
-        renderMovieDetails(movie);
+        renderPlayableDetails(item, options.kind);
     } catch (error) {
         if (!viewRequests.isCurrent(requestId)) {
             return;
         }
-        showError(error instanceof Error ? error.message : "Failed to load movie details");
+        showError(error instanceof Error
+            ? error.message
+            : `Failed to load ${options.kind} details`);
     }
+}
+
+function renderPlayableDetails(item: JellyfinBaseItem, kind: "movie" | "episode"): void {
+    if (kind === "episode") {
+        renderEpisodeDetails(item);
+        return;
+    }
+    renderMovieDetails(item);
+}
+
+function getPlayableKindLabel(kind: "movie" | "episode"): "Movie" | "Episode" {
+    return kind === "movie" ? "Movie" : "Episode";
 }
 
 async function fetchAndRenderSeriesDetails(options: {
@@ -504,13 +526,37 @@ export async function loadSeriesDetails(seriesId: string, seriesName: string): P
 }
 
 export async function loadMovie(movieId: string, movieName: string): Promise<void> {
-    await fetchAndRenderMovieDetails({ movieId, movieName, addBreadcrumb: true });
+    await fetchAndRenderPlayableDetails({
+        kind: "movie",
+        itemId: movieId,
+        itemName: movieName,
+        addBreadcrumb: true
+    });
 }
 
 export async function reloadMovie(breadcrumb: { id: string; name: string }): Promise<void> {
-    await fetchAndRenderMovieDetails({
-        movieId: breadcrumb.id,
-        movieName: breadcrumb.name,
+    await fetchAndRenderPlayableDetails({
+        kind: "movie",
+        itemId: breadcrumb.id,
+        itemName: breadcrumb.name,
+        addBreadcrumb: false
+    });
+}
+
+export async function loadEpisode(episodeId: string, episodeName: string): Promise<void> {
+    await fetchAndRenderPlayableDetails({
+        kind: "episode",
+        itemId: episodeId,
+        itemName: episodeName,
+        addBreadcrumb: true
+    });
+}
+
+export async function reloadEpisode(breadcrumb: { id: string; name: string }): Promise<void> {
+    await fetchAndRenderPlayableDetails({
+        kind: "episode",
+        itemId: breadcrumb.id,
+        itemName: breadcrumb.name,
         addBreadcrumb: false
     });
 }

@@ -6,6 +6,7 @@ import {
     cancelPendingViewRequest,
     loadHome,
     performSearch,
+    reloadEpisode,
     reloadItems,
     reloadMovie,
     reloadSeriesDetails,
@@ -68,6 +69,9 @@ export function handleBack(): void {
         case "movie":
             void reloadMovie(previous);
             break;
+        case "episode":
+            void reloadEpisode(previous);
+            break;
         case "series":
             void reloadSeriesDetails(previous);
             break;
@@ -85,6 +89,9 @@ export function handleRetry(): void {
             break;
         case "movie":
             void reloadMovie(operation);
+            break;
+        case "episode":
+            void reloadEpisode(operation);
             break;
         case "series":
             void reloadSeriesDetails(operation);

@@ -25,6 +25,14 @@ import { buildDisclosureChevron } from "./elements";
 import { getDetailPlaybackLabel } from "../artwork";
 
 export function renderMovieDetails(item: JellyfinBaseItem): void {
+    renderPlayableDetails(item, "movie-details");
+}
+
+export function renderEpisodeDetails(item: JellyfinBaseItem): void {
+    renderPlayableDetails(item, "episode-details");
+}
+
+function renderPlayableDetails(item: JellyfinBaseItem, className: string): void {
     const viewModel = buildMediaDetailsViewModel(item);
     const details = buildMediaDetails(
         item,
@@ -33,12 +41,12 @@ export function renderMovieDetails(item: JellyfinBaseItem): void {
         "",
         false
     );
-    details.classList.add("movie-details");
+    details.classList.add("playable-details", className);
     if (viewModel.mediaFileSources.length > 0) {
         details.appendChild(buildMediaFileInfo(viewModel.mediaFileSources));
     }
     replaceContent(details);
-    renderMovieDetailActions(item);
+    renderPlayableDetailActions(item);
     setBackdropDetail(item);
 }
 
@@ -103,20 +111,20 @@ function buildMediaDetails(
     return details;
 }
 
-function renderMovieDetailActions(item: JellyfinBaseItem): void {
+function renderPlayableDetailActions(item: JellyfinBaseItem): void {
     const play = document.createElement("button");
     play.className = "media-detail-action media-detail-action--primary";
     play.type = "button";
     applyDetailPlaybackContext(play, item);
     const playLabel = getPlayActionLabel(item);
-    play.setAttribute("aria-label", `${playLabel} ${String(item.Name || "movie")}`);
+    play.setAttribute("aria-label", `${playLabel} ${String(item.Name || "video")}`);
     play.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M4.5 2.8c0-.6.7-.9 1.2-.6l6 4c.4.3.4.9 0 1.2l-6 4c-.5.3-1.2 0-1.2-.6v-8Z" fill="currentColor"/></svg><span>${playLabel}</span>`;
 
     const queue = document.createElement("button");
     queue.className = "media-detail-action media-detail-action--secondary";
     queue.type = "button";
     applyDetailQueueContext(queue, item);
-    queue.setAttribute("aria-label", `Queue ${String(item.Name || "movie")}`);
+    queue.setAttribute("aria-label", `Queue ${String(item.Name || "video")}`);
     queue.innerHTML = '<svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true"><path d="M2.2 4h7.2M2.2 7.5h7.2M2.2 11h4.6M11.7 8.8v4.4M9.5 11h4.4" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/></svg><span>Queue</span>';
 
     ui.bottomDetailActions.replaceChildren(play, queue);
@@ -308,10 +316,12 @@ function buildMediaDetailArtworkContainer(
 function buildMediaDetailImage(item: JellyfinBaseItem): HTMLImageElement {
     const image = document.createElement("img");
     image.className = "media-detail-image";
-    image.src = getImageUrl(item.Id || "", "Thumb", 1000);
-    image.dataset.fallback = getImageUrl(item.Id || "", "Backdrop", 1000);
-    image.dataset.itemId = item.Id || "";
-    image.dataset.type = item.Type || "";
+    const isEpisode = item.Type === "Episode";
+    const fallbackItemId = isEpisode && item.SeriesId ? item.SeriesId : item.Id || "";
+    image.src = getImageUrl(item.Id || "", isEpisode ? "Primary" : "Thumb", 1000);
+    image.dataset.fallback = getImageUrl(fallbackItemId, isEpisode ? "Thumb" : "Backdrop", 1000);
+    image.dataset.itemId = fallbackItemId;
+    image.dataset.type = isEpisode && item.SeriesId ? "Series" : item.Type || "";
     image.alt = "";
     return image;
 }

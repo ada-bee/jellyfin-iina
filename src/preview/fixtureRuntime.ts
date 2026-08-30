@@ -5,6 +5,7 @@ import {
     getCardContext,
     hideLoading,
     renderEmptyState,
+    renderEpisodeDetails,
     renderHomeSections,
     renderLibraryGrid,
     renderMovieDetails,
@@ -21,6 +22,7 @@ import {
 import { setupSeasonMenu } from "../sidebar/seasonMenu";
 import { state, type SearchFilter } from "../sidebar/store";
 import {
+    previewEpisode,
     previewMovie,
     previewSeries,
     recentEpisodes,
@@ -84,6 +86,8 @@ function handleContentClick(event: MouseEvent): void {
         navigateToPreview("series");
     } else if (context?.type === "Movie" && !context.directPlay) {
         navigateToPreview("movie");
+    } else if (context?.type === "Episode" && !context.directPlay) {
+        navigateToPreview("episode");
     }
 }
 
@@ -156,6 +160,16 @@ const previewRenderers: Record<PreviewName, () => void> = {
         }];
         updateTitle(String(previewMovie.Name));
         renderMovieDetails(previewMovie);
+    },
+    episode() {
+        showBrowseView();
+        state.breadcrumb = [{
+            type: "episode",
+            id: previewEpisode.Id || "dead-line",
+            name: String(previewEpisode.Name)
+        }];
+        updateTitle(String(previewEpisode.Name));
+        renderEpisodeDetails(previewEpisode);
     },
     series() {
         showBrowseView();

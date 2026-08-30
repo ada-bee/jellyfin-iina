@@ -15,6 +15,7 @@ import {
 } from "./navigation";
 import { handleLogin } from "./session";
 import {
+    loadEpisode,
     loadItems,
     loadMovie,
     loadSeriesDetails,
@@ -151,8 +152,8 @@ function handleDetailPlayClick(target: HTMLElement | null): boolean {
 }
 
 function getDetailPlaybackContext(button: HTMLButtonElement): PlaybackContext {
-    const details = button.closest<HTMLElement>(".movie-details")
-        || ui.content.querySelector<HTMLElement>(".movie-details");
+    const details = button.closest<HTMLElement>(".playable-details")
+        || ui.content.querySelector<HTMLElement>(".playable-details");
     return {
         seriesId: button.dataset.seriesId || "",
         seasonId: button.dataset.seasonId || "",
@@ -243,6 +244,10 @@ function handleListCardSelection(card: HTMLElement): void {
     prepareForDetailsNavigation();
     if (action === "open-movie") {
         void loadMovie(id, name);
+        return;
+    }
+    if (action === "open-episode") {
+        void loadEpisode(id, name);
         return;
     }
     void loadSeriesDetails(id, name);

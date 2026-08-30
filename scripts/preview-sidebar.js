@@ -345,4 +345,4 @@ process.on("SIGTERM", stopServer);
 
 console.log(`Sidebar preview: http://localhost:${server.port}/?state=home`);
 console.log(`Live data: http://localhost:${server.port}/?source=live`);
-console.log("States: home, search, movie, series, login, loading, empty, error");
+console.log("States: home, search, movie, episode, series, login, loading, empty, error");

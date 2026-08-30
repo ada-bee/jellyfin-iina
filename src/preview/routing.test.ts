@@ -5,6 +5,7 @@ import { createPreviewUrl, getRequestedPreview, isPreviewName } from "./routing"
 describe("sidebar preview routing", () => {
     test("accepts only supported fixture states", () => {
         expect(getRequestedPreview("?state=series")).toBe("series");
+        expect(getRequestedPreview("?state=episode")).toBe("episode");
         expect(getRequestedPreview("?state=episodes")).toBe("home");
         expect(getRequestedPreview("")).toBe("home");
         expect(isPreviewName("movie")).toBeTrue();
