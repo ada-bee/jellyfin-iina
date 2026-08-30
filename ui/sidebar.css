@@ -64,7 +64,7 @@ button {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    padding: 10px var(--page-padding) 7px;
+    padding: 8px var(--page-padding) 9px;
     isolation: isolate;
 }
 
@@ -77,8 +77,8 @@ button {
     background: var(--chrome-glass);
     -webkit-backdrop-filter: blur(18px) saturate(150%);
     backdrop-filter: blur(18px) saturate(150%);
-    -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 55%, transparent 100%);
-    mask-image: linear-gradient(to bottom, #000 0, #000 55%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 68%, transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 0, #000 68%, transparent 100%);
 }
 
 .search-field {
@@ -202,7 +202,7 @@ button {
 .bottom-search-layer::before {
     position: absolute;
     z-index: -1;
-    inset: -22px 0 0;
+    inset: -8px 0 0;
     content: "";
     background: var(--chrome-glass);
     -webkit-backdrop-filter: blur(18px) saturate(150%);
@@ -230,7 +230,7 @@ button {
     margin-left: -6px;
     padding: 0 7px 0 5px;
     align-items: center;
-    gap: 2px;
+    gap: 5px;
     border: 0;
     border-radius: 8px;
     outline: 0;
@@ -334,7 +334,7 @@ button {
 .home-section-link {
     display: inline-flex;
     align-items: center;
-    gap: 2px;
+    gap: 5px;
     padding: 0;
     border: 0;
     outline: 0;
