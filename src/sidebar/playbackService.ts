@@ -80,6 +80,7 @@ function resolvePlaybackContext(
         seriesId: preferred.seriesId || item?.SeriesId || "",
         seasonId: preferred.seasonId || item?.SeasonId || item?.ParentId || "",
         episodeIndex: preferred.episodeIndex ?? item?.IndexNumber,
+        mediaSourceId: preferred.mediaSourceId,
         audioStreamIndex: preferred.audioStreamIndex,
         subtitleStreamIndex: preferred.subtitleStreamIndex
     };

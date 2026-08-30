@@ -6,6 +6,7 @@ import {
     getSeriesPlayLabel,
     type EpisodeLoadState,
     type MediaFileMetadataGroup,
+    type MediaFileMetadataSource,
     type MediaFileMetadataTrack,
     type MediaFileTrackKind,
     type MediaDetailsViewModel
@@ -33,8 +34,8 @@ export function renderMovieDetails(item: JellyfinBaseItem): void {
         false
     );
     details.classList.add("movie-details");
-    if (viewModel.mediaFileMetadata.length > 0) {
-        details.appendChild(buildMediaFileInfo(viewModel.mediaFileMetadata));
+    if (viewModel.mediaFileSources.length > 0) {
+        details.appendChild(buildMediaFileInfo(viewModel.mediaFileSources));
     }
     replaceContent(details);
     renderMovieDetailActions(item);
@@ -122,41 +123,97 @@ function renderMovieDetailActions(item: JellyfinBaseItem): void {
     ui.bottomDetailActions.classList.remove("hidden");
 }
 
-function buildMediaFileInfo(groups: MediaFileMetadataGroup[]): HTMLElement {
+function buildMediaFileInfo(sources: MediaFileMetadataSource[]): HTMLElement {
     const section = document.createElement("section");
     section.className = "media-file-info";
     section.setAttribute("aria-label", "Media file");
     const list = document.createElement("dl");
     list.className = "media-file-metadata";
-    groups.forEach(group => list.appendChild(buildMediaFileGroup(group)));
     section.appendChild(list);
+    renderMediaFileSource(section, list, sources, sources[0], false);
     return section;
 }
 
-function buildMediaFileGroup(group: MediaFileMetadataGroup): HTMLElement {
+function renderMediaFileSource(
+    section: HTMLElement,
+    list: HTMLDListElement,
+    sources: MediaFileMetadataSource[],
+    selectedSource: MediaFileMetadataSource,
+    restoreFocus: boolean
+): void {
+    section.dataset.mediaSourceId = selectedSource.mediaSourceId;
+    const selectSource = (mediaSourceId: string) => {
+        const source = sources.find(candidate => candidate.mediaSourceId === mediaSourceId);
+        if (source) {
+            renderMediaFileSource(section, list, sources, source, true);
+        }
+    };
+    list.replaceChildren(...getMediaFileGroups(sources, selectedSource)
+        .map(group => buildMediaFileGroup(group, selectSource)));
+    if (restoreFocus) {
+        list.querySelector<HTMLButtonElement>(
+            '[data-media-track="video"][aria-pressed="true"]'
+        )?.focus();
+    }
+}
+
+function getMediaFileGroups(
+    sources: MediaFileMetadataSource[],
+    selectedSource: MediaFileMetadataSource
+): MediaFileMetadataGroup[] {
+    const videoTracks = sources.flatMap(source => (
+        source.groups.find(group => group.kind === "video")?.tracks.map(track => ({
+            ...track,
+            selected: source === selectedSource
+        })) || []
+    ));
+    return [
+        { kind: "video", label: "Video", tracks: videoTracks },
+        ...selectedSource.groups.filter(group => group.kind !== "video")
+    ];
+}
+
+function buildMediaFileGroup(
+    group: MediaFileMetadataGroup,
+    selectSource: (mediaSourceId: string) => void
+): HTMLElement {
     const row = document.createElement("div");
     row.className = "media-file-group";
     const label = document.createElement("dt");
     label.textContent = `${group.label}:`;
     const tracks = document.createElement("dd");
-    group.tracks.forEach(track => tracks.appendChild(buildMediaFileTrack(group.kind, track)));
+    group.tracks.forEach(track => tracks.appendChild(
+        buildMediaFileTrack(group.kind, track, selectSource)
+    ));
     row.append(label, tracks);
     return row;
 }
 
 function buildMediaFileTrack(
     kind: MediaFileTrackKind,
-    track: MediaFileMetadataTrack
+    track: MediaFileMetadataTrack,
+    selectSource: (mediaSourceId: string) => void
 ): HTMLElement {
     const element = document.createElement(track.selectable ? "button" : "div");
     element.className = "media-file-track";
     if (element instanceof HTMLButtonElement) {
         element.type = "button";
         element.dataset.mediaTrack = kind;
-        element.dataset.streamIndex = String(track.streamIndex);
+        if (track.streamIndex !== null) {
+            element.dataset.streamIndex = String(track.streamIndex);
+        }
+        if (track.mediaSourceId) {
+            element.dataset.mediaSourceId = track.mediaSourceId;
+        }
         element.setAttribute("aria-pressed", String(track.selected));
         element.setAttribute("data-clickable", "");
-        element.addEventListener("click", () => selectMediaFileTrack(element, kind));
+        element.addEventListener("click", () => {
+            if (kind === "video" && track.mediaSourceId) {
+                selectSource(track.mediaSourceId);
+                return;
+            }
+            selectMediaFileTrack(element, kind);
+        });
     }
     const title = document.createElement("span");
     title.className = "media-file-track-title";

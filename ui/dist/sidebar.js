@@ -387,6 +387,7 @@
   function buildPlaybackInfoRequest(userId, deviceProfile, selection = {}) {
     return {
       UserId: userId,
+      MediaSourceId: selection.mediaSourceId,
       AudioStreamIndex: selection.audioStreamIndex,
       SubtitleStreamIndex: selection.subtitleStreamIndex,
       DeviceProfile: deviceProfile,
@@ -397,20 +398,27 @@
       AllowAudioStreamCopy: true
     };
   }
-  function selectPlayableMediaSource(playbackInfo) {
-    const mediaSource = playbackInfo.MediaSources?.find((source) => Boolean(source.Id) && (source.SupportsDirectPlay === true || Boolean(source.TranscodingUrl)));
-    if (mediaSource) {
+  function selectPlayableMediaSource(playbackInfo, mediaSourceId) {
+    const sources = playbackInfo.MediaSources || [];
+    const mediaSource = mediaSourceId ? sources.find((source) => source.Id === mediaSourceId) : sources.find(isPlayableMediaSource);
+    if (mediaSource && isPlayableMediaSource(mediaSource)) {
       return mediaSource;
+    }
+    if (mediaSourceId) {
+      throw new Error("Jellyfin did not provide the selected media source.");
     }
     const errorCode = playbackInfo.ErrorCode ? ` (${playbackInfo.ErrorCode})` : "";
     throw new Error(`Jellyfin did not provide a playable media source${errorCode}.`);
+  }
+  function isPlayableMediaSource(source) {
+    return Boolean(source.Id) && (source.SupportsDirectPlay === true || Boolean(source.TranscodingUrl));
   }
   function buildPlaybackHandoff(playbackInfo, options) {
     const playSessionId = playbackInfo.PlaySessionId || "";
     if (!playSessionId) {
       throw new Error("Jellyfin did not provide a playback session.");
     }
-    const mediaSource = selectPlayableMediaSource(playbackInfo);
+    const mediaSource = selectPlayableMediaSource(playbackInfo, options.mediaSourceId);
     const mediaSourceId = mediaSource.Id || "";
     const directPlay = mediaSource.SupportsDirectPlay === true;
     const url = directPlay ? buildJellyfinStreamUrl({ ...options, mediaSourceId, playSessionId }) : buildAuthenticatedDeliveryUrl(options.serverUrl, mediaSource.TranscodingUrl || "", options.accessToken);
@@ -1038,7 +1046,7 @@
       metadata: getMediaDetailMetadata(item, seasonCount),
       tagline: item.Taglines?.find((value) => Boolean(value?.trim()))?.trim() || "",
       overview: String(item.Overview || ""),
-      mediaFileMetadata: getMediaFileMetadata(item)
+      mediaFileSources: getMediaFileSources(item)
     };
   }
   function buildSearchResultsViewModel(items, filter) {
@@ -1109,15 +1117,21 @@
     }
     return metadata.join(" · ");
   }
-  function getMediaFileMetadata(item) {
-    const source = item.MediaSources?.[0];
-    const streams = source?.MediaStreams || [];
+  function getMediaFileSources(item) {
+    const sources = item.MediaSources || [];
+    return sources.map((source, index) => ({
+      mediaSourceId: source.Id || "",
+      groups: getMediaFileGroups(source, index === 0, sources.length > 1)
+    }));
+  }
+  function getMediaFileGroups(source, selected, hasVersions) {
+    const streams = source.MediaStreams || [];
     const audioStreams = streams.filter((stream) => stream.Type === "Audio");
     const subtitleStreams = streams.filter((stream) => stream.Type === "Subtitle");
-    const audioStreamIndex = getInitialAudioStreamIndex(audioStreams, source?.DefaultAudioStreamIndex);
-    const subtitleStreamIndex = getInitialSubtitleStreamIndex(subtitleStreams, source?.DefaultSubtitleStreamIndex);
+    const audioStreamIndex = getInitialAudioStreamIndex(audioStreams, source.DefaultAudioStreamIndex);
+    const subtitleStreamIndex = getInitialSubtitleStreamIndex(subtitleStreams, source.DefaultSubtitleStreamIndex);
     const groups = [
-      buildMediaFileGroup("video", "Video", streams.filter((stream) => stream.Type === "Video").map((stream) => formatVideoStream(stream, source?.Bitrate))),
+      buildMediaFileGroup("video", "Video", [formatVideoSource(source, selected, hasVersions)]),
       buildMediaFileGroup("audio", "Audio", audioStreams.map((stream) => formatAudioStream(stream, audioStreamIndex, audioStreams.length > 1))),
       buildMediaFileGroup("subtitle", "Subtitles", subtitleStreams.map((stream) => formatSubtitleStream(stream, subtitleStreamIndex)))
     ];
@@ -1126,22 +1140,25 @@
   function buildMediaFileGroup(kind, label, tracks) {
     return { kind, label, tracks };
   }
-  function formatVideoStream(stream, sourceBitrate) {
+  function formatVideoSource(source, selected, hasVersions) {
+    const stream = source.MediaStreams?.find((candidate) => candidate.Type === "Video");
     return {
-      title: getResolutionLabel(stream.Width, stream.Height) || "Video",
+      title: getResolutionLabel(stream?.Width, stream?.Height) || source.Name?.trim() || "Video",
       technical: [
-        getCodecLabel(stream.Codec),
-        getBitrateLabel(stream.BitRate || sourceBitrate)
+        getCodecLabel(stream?.Codec),
+        getBitrateLabel(stream?.BitRate || source.Bitrate)
       ].filter(Boolean).join(" · "),
+      mediaSourceId: source.Id || null,
       streamIndex: null,
-      selected: false,
-      selectable: false
+      selected,
+      selectable: hasVersions && Boolean(source.Id)
     };
   }
   function formatAudioStream(stream, selectedIndex, hasAlternatives) {
     return {
       title: getLanguageLabel(stream),
       technical: [getCodecLabel(stream.Codec), getChannelLabel(stream)].filter(Boolean).join(" "),
+      mediaSourceId: null,
       streamIndex: stream.Index ?? null,
       selected: stream.Index === selectedIndex,
       selectable: hasAlternatives && stream.Index !== undefined
@@ -1155,6 +1172,7 @@
         stream.IsForced ? "Forced" : "",
         getCodecLabel(stream.Codec)
       ].filter(Boolean).join(" · "),
+      mediaSourceId: null,
       streamIndex: stream.Index ?? null,
       selected: stream.Index === selectedIndex,
       selectable: stream.Index !== undefined
@@ -1978,8 +1996,8 @@
     const viewModel = buildMediaDetailsViewModel(item);
     const details = buildMediaDetails(item, viewModel, item, "", false);
     details.classList.add("movie-details");
-    if (viewModel.mediaFileMetadata.length > 0) {
-      details.appendChild(buildMediaFileInfo(viewModel.mediaFileMetadata));
+    if (viewModel.mediaFileSources.length > 0) {
+      details.appendChild(buildMediaFileInfo(viewModel.mediaFileSources));
     }
     replaceContent(details);
     renderMovieDetailActions(item);
@@ -2027,36 +2045,70 @@
     ui.bottomDetailActions.replaceChildren(play, queue);
     ui.bottomDetailActions.classList.remove("hidden");
   }
-  function buildMediaFileInfo(groups) {
+  function buildMediaFileInfo(sources) {
     const section = document.createElement("section");
     section.className = "media-file-info";
     section.setAttribute("aria-label", "Media file");
     const list = document.createElement("dl");
     list.className = "media-file-metadata";
-    groups.forEach((group) => list.appendChild(buildMediaFileGroup2(group)));
     section.appendChild(list);
+    renderMediaFileSource(section, list, sources, sources[0], false);
     return section;
   }
-  function buildMediaFileGroup2(group) {
+  function renderMediaFileSource(section, list, sources, selectedSource, restoreFocus) {
+    section.dataset.mediaSourceId = selectedSource.mediaSourceId;
+    const selectSource = (mediaSourceId) => {
+      const source2 = sources.find((candidate) => candidate.mediaSourceId === mediaSourceId);
+      if (source2) {
+        renderMediaFileSource(section, list, sources, source2, true);
+      }
+    };
+    list.replaceChildren(...getMediaFileGroups2(sources, selectedSource).map((group) => buildMediaFileGroup2(group, selectSource)));
+    if (restoreFocus) {
+      list.querySelector('[data-media-track="video"][aria-pressed="true"]')?.focus();
+    }
+  }
+  function getMediaFileGroups2(sources, selectedSource) {
+    const videoTracks = sources.flatMap((source2) => source2.groups.find((group) => group.kind === "video")?.tracks.map((track) => ({
+      ...track,
+      selected: source2 === selectedSource
+    })) || []);
+    return [
+      { kind: "video", label: "Video", tracks: videoTracks },
+      ...selectedSource.groups.filter((group) => group.kind !== "video")
+    ];
+  }
+  function buildMediaFileGroup2(group, selectSource) {
     const row = document.createElement("div");
     row.className = "media-file-group";
     const label = document.createElement("dt");
     label.textContent = `${group.label}:`;
     const tracks = document.createElement("dd");
-    group.tracks.forEach((track) => tracks.appendChild(buildMediaFileTrack(group.kind, track)));
+    group.tracks.forEach((track) => tracks.appendChild(buildMediaFileTrack(group.kind, track, selectSource)));
     row.append(label, tracks);
     return row;
   }
-  function buildMediaFileTrack(kind, track) {
+  function buildMediaFileTrack(kind, track, selectSource) {
     const element = document.createElement(track.selectable ? "button" : "div");
     element.className = "media-file-track";
     if (element instanceof HTMLButtonElement) {
       element.type = "button";
       element.dataset.mediaTrack = kind;
-      element.dataset.streamIndex = String(track.streamIndex);
+      if (track.streamIndex !== null) {
+        element.dataset.streamIndex = String(track.streamIndex);
+      }
+      if (track.mediaSourceId) {
+        element.dataset.mediaSourceId = track.mediaSourceId;
+      }
       element.setAttribute("aria-pressed", String(track.selected));
       element.setAttribute("data-clickable", "");
-      element.addEventListener("click", () => selectMediaFileTrack(element, kind));
+      element.addEventListener("click", () => {
+        if (kind === "video" && track.mediaSourceId) {
+          selectSource(track.mediaSourceId);
+          return;
+        }
+        selectMediaFileTrack(element, kind);
+      });
     }
     const title = document.createElement("span");
     title.className = "media-file-track-title";
@@ -2540,6 +2592,7 @@
       seriesId: preferred.seriesId || item?.SeriesId || "",
       seasonId: preferred.seasonId || item?.SeasonId || item?.ParentId || "",
       episodeIndex: preferred.episodeIndex ?? item?.IndexNumber,
+      mediaSourceId: preferred.mediaSourceId,
       audioStreamIndex: preferred.audioStreamIndex,
       subtitleStreamIndex: preferred.subtitleStreamIndex
     };
@@ -3642,9 +3695,13 @@
       seriesId: button.dataset.seriesId || "",
       seasonId: button.dataset.seasonId || "",
       episodeIndex: button.dataset.episodeIndex ? Number.parseInt(button.dataset.episodeIndex, 10) : null,
+      mediaSourceId: getSelectedMediaSourceId(details),
       audioStreamIndex: getSelectedStreamIndex(details, "audio"),
       subtitleStreamIndex: getSelectedStreamIndex(details, "subtitle")
     };
+  }
+  function getSelectedMediaSourceId(details) {
+    return details?.querySelector(".media-file-info")?.dataset.mediaSourceId || undefined;
   }
   function getSelectedStreamIndex(details, kind) {
     const tracks = [...details?.querySelectorAll(`[data-media-track="${kind}"]`) || []];

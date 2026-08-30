@@ -1286,6 +1286,7 @@
   function buildPlaybackInfoRequest(userId, deviceProfile, selection = {}) {
     return {
       UserId: userId,
+      MediaSourceId: selection.mediaSourceId,
       AudioStreamIndex: selection.audioStreamIndex,
       SubtitleStreamIndex: selection.subtitleStreamIndex,
       DeviceProfile: deviceProfile,
@@ -1296,20 +1297,27 @@
       AllowAudioStreamCopy: true
     };
   }
-  function selectPlayableMediaSource(playbackInfo) {
-    const mediaSource = playbackInfo.MediaSources?.find((source) => Boolean(source.Id) && (source.SupportsDirectPlay === true || Boolean(source.TranscodingUrl)));
-    if (mediaSource) {
+  function selectPlayableMediaSource(playbackInfo, mediaSourceId) {
+    const sources = playbackInfo.MediaSources || [];
+    const mediaSource = mediaSourceId ? sources.find((source) => source.Id === mediaSourceId) : sources.find(isPlayableMediaSource);
+    if (mediaSource && isPlayableMediaSource(mediaSource)) {
       return mediaSource;
+    }
+    if (mediaSourceId) {
+      throw new Error("Jellyfin did not provide the selected media source.");
     }
     const errorCode = playbackInfo.ErrorCode ? ` (${playbackInfo.ErrorCode})` : "";
     throw new Error(`Jellyfin did not provide a playable media source${errorCode}.`);
+  }
+  function isPlayableMediaSource(source) {
+    return Boolean(source.Id) && (source.SupportsDirectPlay === true || Boolean(source.TranscodingUrl));
   }
   function buildPlaybackHandoff(playbackInfo, options) {
     const playSessionId = playbackInfo.PlaySessionId || "";
     if (!playSessionId) {
       throw new Error("Jellyfin did not provide a playback session.");
     }
-    const mediaSource = selectPlayableMediaSource(playbackInfo);
+    const mediaSource = selectPlayableMediaSource(playbackInfo, options.mediaSourceId);
     const mediaSourceId = mediaSource.Id || "";
     const directPlay = mediaSource.SupportsDirectPlay === true;
     const url = directPlay ? buildJellyfinStreamUrl({ ...options, mediaSourceId, playSessionId }) : buildAuthenticatedDeliveryUrl(options.serverUrl, mediaSource.TranscodingUrl || "", options.accessToken);

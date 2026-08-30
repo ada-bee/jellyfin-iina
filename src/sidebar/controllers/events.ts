@@ -185,9 +185,15 @@ function getDetailPlaybackContext(button: HTMLButtonElement): PlaybackContext {
         episodeIndex: button.dataset.episodeIndex
             ? Number.parseInt(button.dataset.episodeIndex, 10)
             : null,
+        mediaSourceId: getSelectedMediaSourceId(details),
         audioStreamIndex: getSelectedStreamIndex(details, "audio"),
         subtitleStreamIndex: getSelectedStreamIndex(details, "subtitle")
     };
+}
+
+function getSelectedMediaSourceId(details: HTMLElement | null): string | undefined {
+    return details?.querySelector<HTMLElement>(".media-file-info")?.dataset.mediaSourceId
+        || undefined;
 }
 
 function getSelectedStreamIndex(

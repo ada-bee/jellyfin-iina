@@ -30,6 +30,7 @@ export interface PlaybackHandoffOptions extends StreamUrlOptions {
 }
 
 export interface PlaybackStreamSelection {
+    mediaSourceId?: string;
     audioStreamIndex?: number | null;
     subtitleStreamIndex?: number | null;
 }
@@ -62,6 +63,7 @@ export function buildPlaybackInfoRequest(
 ): JellyfinPlaybackInfoDto {
     return {
         UserId: userId,
+        MediaSourceId: selection.mediaSourceId,
         AudioStreamIndex: selection.audioStreamIndex,
         SubtitleStreamIndex: selection.subtitleStreamIndex,
         DeviceProfile: deviceProfile,
@@ -74,18 +76,27 @@ export function buildPlaybackInfoRequest(
 }
 
 export function selectPlayableMediaSource(
-    playbackInfo: JellyfinPlaybackInfoResponse
+    playbackInfo: JellyfinPlaybackInfoResponse,
+    mediaSourceId?: string
 ): JellyfinMediaSourceInfo {
-    const mediaSource = playbackInfo.MediaSources?.find(source => (
-        Boolean(source.Id)
-        && (source.SupportsDirectPlay === true || Boolean(source.TranscodingUrl))
-    ));
-    if (mediaSource) {
+    const sources = playbackInfo.MediaSources || [];
+    const mediaSource = mediaSourceId
+        ? sources.find(source => source.Id === mediaSourceId)
+        : sources.find(isPlayableMediaSource);
+    if (mediaSource && isPlayableMediaSource(mediaSource)) {
         return mediaSource;
+    }
+    if (mediaSourceId) {
+        throw new Error("Jellyfin did not provide the selected media source.");
     }
 
     const errorCode = playbackInfo.ErrorCode ? ` (${playbackInfo.ErrorCode})` : "";
     throw new Error(`Jellyfin did not provide a playable media source${errorCode}.`);
+}
+
+function isPlayableMediaSource(source: JellyfinMediaSourceInfo): boolean {
+    return Boolean(source.Id)
+        && (source.SupportsDirectPlay === true || Boolean(source.TranscodingUrl));
 }
 
 export function buildPlaybackHandoff(
@@ -97,7 +108,7 @@ export function buildPlaybackHandoff(
         throw new Error("Jellyfin did not provide a playback session.");
     }
 
-    const mediaSource = selectPlayableMediaSource(playbackInfo);
+    const mediaSource = selectPlayableMediaSource(playbackInfo, options.mediaSourceId);
     const mediaSourceId = mediaSource.Id || "";
     const directPlay = mediaSource.SupportsDirectPlay === true;
     const url = directPlay

@@ -57,6 +57,27 @@ describe("Jellyfin playback negotiation", () => {
         expect(selectPlayableMediaSource(response).Id).toBe("preferred");
     });
 
+    test("uses the requested media version instead of the first playable source", () => {
+        const response: JellyfinPlaybackInfoResponse = {
+            PlaySessionId: "session-id",
+            MediaSources: [
+                { Id: "source-4k", SupportsDirectPlay: true },
+                { Id: "source-1080", SupportsDirectPlay: true }
+            ]
+        };
+
+        expect(selectPlayableMediaSource(response, "source-1080").Id).toBe("source-1080");
+        expect(buildPlaybackHandoff(response, {
+            ...baseOptions,
+            mediaSourceId: "source-1080"
+        })).toMatchObject({
+            mediaSourceId: "source-1080"
+        });
+        expect(() => selectPlayableMediaSource(response, "missing-source")).toThrow(
+            "Jellyfin did not provide the selected media source."
+        );
+    });
+
     test("fails clearly when Jellyfin provides no playable source", () => {
         const response: JellyfinPlaybackInfoResponse = {
             ErrorCode: "NoCompatibleStream",
@@ -70,10 +91,12 @@ describe("Jellyfin playback negotiation", () => {
 
     test("sends canonical playback options in the request body", () => {
         expect(buildPlaybackInfoRequest("user-id", IINA_DEVICE_PROFILE, {
+            mediaSourceId: "source-1080",
             audioStreamIndex: 2,
             subtitleStreamIndex: null
         })).toMatchObject({
             UserId: "user-id",
+            MediaSourceId: "source-1080",
             AudioStreamIndex: 2,
             SubtitleStreamIndex: null,
             DeviceProfile: IINA_DEVICE_PROFILE,

@@ -1,4 +1,8 @@
-import type { JellyfinBaseItem, JellyfinMediaStream } from "../jellyfin/types";
+import type {
+    JellyfinBaseItem,
+    JellyfinMediaSourceInfo,
+    JellyfinMediaStream
+} from "../jellyfin/types";
 
 import { TICKS_PER_MINUTE } from "../shared/constants";
 import { formatPaddedEpisodeNumber, formatRuntime } from "./viewFormatting";
@@ -54,7 +58,12 @@ export interface MediaDetailsViewModel {
     metadata: string;
     tagline: string;
     overview: string;
-    mediaFileMetadata: MediaFileMetadataGroup[];
+    mediaFileSources: MediaFileMetadataSource[];
+}
+
+export interface MediaFileMetadataSource {
+    mediaSourceId: string;
+    groups: MediaFileMetadataGroup[];
 }
 
 export interface MediaFileMetadataGroup {
@@ -68,6 +77,7 @@ export type MediaFileTrackKind = "video" | "audio" | "subtitle";
 export interface MediaFileMetadataTrack {
     title: string;
     technical: string;
+    mediaSourceId: string | null;
     streamIndex: number | null;
     selected: boolean;
     selectable: boolean;
@@ -124,7 +134,7 @@ export function buildMediaDetailsViewModel(
         metadata: getMediaDetailMetadata(item, seasonCount),
         tagline: item.Taglines?.find(value => Boolean(value?.trim()))?.trim() || "",
         overview: String(item.Overview || ""),
-        mediaFileMetadata: getMediaFileMetadata(item)
+        mediaFileSources: getMediaFileSources(item)
     };
 }
 
@@ -212,22 +222,32 @@ function getMediaDetailMetadata(item: JellyfinBaseItem, seasonCount: number): st
     return metadata.join(" · ");
 }
 
-function getMediaFileMetadata(item: JellyfinBaseItem): MediaFileMetadataGroup[] {
-    const source = item.MediaSources?.[0];
-    const streams = source?.MediaStreams || [];
+function getMediaFileSources(item: JellyfinBaseItem): MediaFileMetadataSource[] {
+    const sources = item.MediaSources || [];
+    return sources.map((source, index) => ({
+        mediaSourceId: source.Id || "",
+        groups: getMediaFileGroups(source, index === 0, sources.length > 1)
+    }));
+}
+
+function getMediaFileGroups(
+    source: JellyfinMediaSourceInfo,
+    selected: boolean,
+    hasVersions: boolean
+): MediaFileMetadataGroup[] {
+    const streams = source.MediaStreams || [];
     const audioStreams = streams.filter(stream => stream.Type === "Audio");
     const subtitleStreams = streams.filter(stream => stream.Type === "Subtitle");
-    const audioStreamIndex = getInitialAudioStreamIndex(audioStreams, source?.DefaultAudioStreamIndex);
+    const audioStreamIndex = getInitialAudioStreamIndex(audioStreams, source.DefaultAudioStreamIndex);
     const subtitleStreamIndex = getInitialSubtitleStreamIndex(
         subtitleStreams,
-        source?.DefaultSubtitleStreamIndex
+        source.DefaultSubtitleStreamIndex
     );
     const groups = [
         buildMediaFileGroup(
             "video",
             "Video",
-            streams.filter(stream => stream.Type === "Video")
-                .map(stream => formatVideoStream(stream, source?.Bitrate))
+            [formatVideoSource(source, selected, hasVersions)]
         ),
         buildMediaFileGroup(
             "audio",
@@ -253,19 +273,24 @@ function buildMediaFileGroup(
     return { kind, label, tracks };
 }
 
-function formatVideoStream(
-    stream: JellyfinMediaStream,
-    sourceBitrate?: number | null
+function formatVideoSource(
+    source: JellyfinMediaSourceInfo,
+    selected: boolean,
+    hasVersions: boolean
 ): MediaFileMetadataTrack {
+    const stream = source.MediaStreams?.find(candidate => candidate.Type === "Video");
     return {
-        title: getResolutionLabel(stream.Width, stream.Height) || "Video",
+        title: getResolutionLabel(stream?.Width, stream?.Height)
+            || source.Name?.trim()
+            || "Video",
         technical: [
-            getCodecLabel(stream.Codec),
-            getBitrateLabel(stream.BitRate || sourceBitrate)
+            getCodecLabel(stream?.Codec),
+            getBitrateLabel(stream?.BitRate || source.Bitrate)
         ].filter(Boolean).join(" · "),
+        mediaSourceId: source.Id || null,
         streamIndex: null,
-        selected: false,
-        selectable: false
+        selected,
+        selectable: hasVersions && Boolean(source.Id)
     };
 }
 
@@ -279,6 +304,7 @@ function formatAudioStream(
         technical: [getCodecLabel(stream.Codec), getChannelLabel(stream)]
             .filter(Boolean)
             .join(" "),
+        mediaSourceId: null,
         streamIndex: stream.Index ?? null,
         selected: stream.Index === selectedIndex,
         selectable: hasAlternatives && stream.Index !== undefined
@@ -296,6 +322,7 @@ function formatSubtitleStream(
             stream.IsForced ? "Forced" : "",
             getCodecLabel(stream.Codec)
         ].filter(Boolean).join(" · "),
+        mediaSourceId: null,
         streamIndex: stream.Index ?? null,
         selected: stream.Index === selectedIndex,
         selectable: stream.Index !== undefined

@@ -145,7 +145,7 @@ describe("sidebar view models", () => {
             metadata: "2025 · 1h 52m · PG-13",
             tagline: "Some signals are better left unanswered.",
             overview: "A mysterious transmission arrives.",
-            mediaFileMetadata: []
+            mediaFileSources: []
         });
 
         const series: JellyfinBaseItem = {
@@ -160,6 +160,7 @@ describe("sidebar view models", () => {
         const movie: JellyfinBaseItem = {
             Type: "Movie",
             MediaSources: [{
+                Id: "source-1080",
                 DefaultAudioStreamIndex: 1,
                 DefaultSubtitleStreamIndex: 2,
                 MediaStreams: [
@@ -177,56 +178,63 @@ describe("sidebar view models", () => {
             }]
         };
 
-        expect(buildMediaDetailsViewModel(movie).mediaFileMetadata).toEqual([
-            {
-                kind: "video",
-                label: "Video",
-                tracks: [{
-                    title: "1080p",
-                    technical: "H.264 · 8 Mbps",
-                    streamIndex: null,
-                    selected: false,
-                    selectable: false
-                }]
-            },
-            {
-                kind: "audio",
-                label: "Audio",
-                tracks: [{
-                    title: "English",
-                    technical: "DTS 5.1",
-                    streamIndex: 1,
-                    selected: true,
-                    selectable: false
-                }]
-            },
-            {
-                kind: "subtitle",
-                label: "Subtitles",
-                tracks: [
-                    {
-                        title: "English",
-                        technical: "SDH · SRT",
-                        streamIndex: 2,
+        expect(buildMediaDetailsViewModel(movie).mediaFileSources).toEqual([{
+            mediaSourceId: "source-1080",
+            groups: [
+                {
+                    kind: "video",
+                    label: "Video",
+                    tracks: [{
+                        title: "1080p",
+                        technical: "H.264 · 8 Mbps",
+                        mediaSourceId: "source-1080",
+                        streamIndex: null,
                         selected: true,
-                        selectable: true
-                    },
-                    {
-                        title: "Spanish",
-                        technical: "PGS",
-                        streamIndex: 3,
-                        selected: false,
-                        selectable: true
-                    }
-                ]
-            }
-        ]);
+                        selectable: false
+                    }]
+                },
+                {
+                    kind: "audio",
+                    label: "Audio",
+                    tracks: [{
+                        title: "English",
+                        technical: "DTS 5.1",
+                        mediaSourceId: null,
+                        streamIndex: 1,
+                        selected: true,
+                        selectable: false
+                    }]
+                },
+                {
+                    kind: "subtitle",
+                    label: "Subtitles",
+                    tracks: [
+                        {
+                            title: "English",
+                            technical: "SDH · SRT",
+                            mediaSourceId: null,
+                            streamIndex: 2,
+                            selected: true,
+                            selectable: true
+                        },
+                        {
+                            title: "Spanish",
+                            technical: "PGS",
+                            mediaSourceId: null,
+                            streamIndex: 3,
+                            selected: false,
+                            selectable: true
+                        }
+                    ]
+                }
+            ]
+        }]);
     });
 
     test("only makes audio tracks selectable when alternatives exist", () => {
         const buildAudioTracks = (streams: JellyfinBaseItem["MediaSources"]) =>
             buildMediaDetailsViewModel({ Type: "Movie", MediaSources: streams })
-                .mediaFileMetadata.find(group => group.kind === "audio")?.tracks;
+                .mediaFileSources[0]?.groups.find(group => group.kind === "audio")?.tracks;
 
         expect(buildAudioTracks([{ MediaStreams: [
             { Type: "Audio", Index: 1, Language: "eng" }
@@ -235,6 +243,43 @@ describe("sidebar view models", () => {
             { Type: "Audio", Index: 1, Language: "eng" },
             { Type: "Audio", Index: 2, Language: "spa" }
         ] }])?.map(track => track.selectable)).toEqual([true, true]);
+    });
+
+    test("models every video version with its own available tracks", () => {
+        const sources = buildMediaDetailsViewModel({
+            Type: "Movie",
+            MediaSources: [
+                {
+                    Id: "source-4k",
+                    DefaultAudioStreamIndex: 2,
+                    MediaStreams: [
+                        { Type: "Video", Width: 3840, Height: 1600, Codec: "hevc" },
+                        { Type: "Audio", Index: 2, Language: "eng" }
+                    ]
+                },
+                {
+                    Id: "source-1080",
+                    DefaultAudioStreamIndex: 5,
+                    MediaStreams: [
+                        { Type: "Video", Width: 1920, Height: 800, Codec: "h264" },
+                        { Type: "Audio", Index: 5, Language: "spa" },
+                        { Type: "Audio", Index: 6, Language: "fra" }
+                    ]
+                }
+            ]
+        }).mediaFileSources;
+
+        expect(sources.map(source => source.groups[0]?.tracks[0])).toMatchObject([
+            { title: "4K", mediaSourceId: "source-4k", selected: true, selectable: true },
+            { title: "1080p", mediaSourceId: "source-1080", selected: false, selectable: true }
+        ]);
+        expect(sources[0]?.groups.find(group => group.kind === "audio")?.tracks)
+            .toMatchObject([{ title: "English", selected: true, selectable: false }]);
+        expect(sources[1]?.groups.find(group => group.kind === "audio")?.tracks)
+            .toMatchObject([
+                { title: "Spanish", selected: true, selectable: true },
+                { title: "French", selected: false, selectable: true }
+            ]);
     });
 
     test("groups filtered search results without changing their order", () => {

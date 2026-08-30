@@ -97,22 +97,36 @@ export const previewMovie: JellyfinBaseItem = {
     Overview: "After a mysterious transmission reaches an isolated mountain town, a radio astronomer must decide whether its warning is meant for Earth—or came from it.",
     Taglines: ["Some signals are better left unanswered."],
     OfficialRating: "PG-13",
-    MediaSources: [{
-        DefaultAudioStreamIndex: 1,
-        DefaultSubtitleStreamIndex: 2,
-        MediaStreams: [
-            { Type: "Video", Width: 1920, Height: 800, Codec: "h264", BitRate: 8_000_000 },
-            { Type: "Audio", Index: 1, Language: "eng", Codec: "dts", Channels: 6 },
-            {
-                Type: "Subtitle",
-                Index: 2,
-                Language: "eng",
-                Codec: "subrip",
-                IsHearingImpaired: true
-            },
-            { Type: "Subtitle", Index: 3, Language: "spa", Codec: "hdmv_pgs_subtitle" }
-        ]
-    }]
+    MediaSources: [
+        {
+            Id: "signal-fire-4k",
+            DefaultAudioStreamIndex: 1,
+            DefaultSubtitleStreamIndex: 3,
+            MediaStreams: [
+                { Type: "Video", Width: 3840, Height: 1600, Codec: "hevc", BitRate: 22_000_000 },
+                { Type: "Audio", Index: 1, Language: "eng", Codec: "truehd", Channels: 8 },
+                { Type: "Audio", Index: 2, Language: "jpn", Codec: "ac3", Channels: 6 },
+                { Type: "Subtitle", Index: 3, Language: "eng", Codec: "hdmv_pgs_subtitle" }
+            ]
+        },
+        {
+            Id: "signal-fire-1080",
+            DefaultAudioStreamIndex: 1,
+            DefaultSubtitleStreamIndex: 2,
+            MediaStreams: [
+                { Type: "Video", Width: 1920, Height: 800, Codec: "h264", BitRate: 8_000_000 },
+                { Type: "Audio", Index: 1, Language: "eng", Codec: "dts", Channels: 6 },
+                {
+                    Type: "Subtitle",
+                    Index: 2,
+                    Language: "eng",
+                    Codec: "subrip",
+                    IsHearingImpaired: true
+                },
+                { Type: "Subtitle", Index: 3, Language: "spa", Codec: "hdmv_pgs_subtitle" }
+            ]
+        }
+    ]
 };
 
 export const recentEpisodes = [

@@ -59,6 +59,7 @@ describe("sidebar playback handoff", () => {
             {
                 seriesId: "preferred-series",
                 episodeIndex: 7,
+                mediaSourceId: "source",
                 audioStreamIndex: 5,
                 subtitleStreamIndex: null
             }
@@ -67,6 +68,7 @@ describe("sidebar playback handoff", () => {
         expect(requestedSelections).toEqual([{
             seriesId: "preferred-series",
             episodeIndex: 7,
+            mediaSourceId: "source",
             audioStreamIndex: 5,
             subtitleStreamIndex: null
         }]);
@@ -79,6 +81,7 @@ describe("sidebar playback handoff", () => {
                 seriesId: "preferred-series",
                 seasonId: "season-from-item",
                 episodeIndex: 7,
+                mediaSourceId: "source",
                 audioStreamIndex: 5,
                 subtitleStreamIndex: null,
                 runtimeTicks: 42 * TICKS_PER_SECOND,
