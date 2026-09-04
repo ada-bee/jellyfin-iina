@@ -17,10 +17,10 @@ import {
     buildPlaybackInfoRequest
 } from "../../playback/negotiation";
 import { FIELDS_EPISODES, FIELDS_SEASONS, ITEM_DETAILS_FIELDS } from "../../jellyfin/fields";
-import type { HttpContext, HttpRequestOptions } from "./apiClient";
+import type { JellyfinConnection, JellyfinRequestOptions } from "../../jellyfin/client";
 
 interface AutoplayRequestPort {
-    requestJson<T>(context: HttpContext, options: HttpRequestOptions): Promise<T | null>;
+    requestJson<T>(context: JellyfinConnection, options: JellyfinRequestOptions): Promise<T | null>;
 }
 
 interface EpisodeLocation {

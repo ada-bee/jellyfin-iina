@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { JellyfinPlaybackInfoResponse } from "../../jellyfin/types";
 import type { PlaybackSession } from "../../playback/ports";
-import type { HttpContext, HttpRequestOptions } from "./apiClient";
+import type { JellyfinConnection, JellyfinRequestOptions } from "../../jellyfin/client";
 
 import { createAutoplayResolver } from "./autoplayResolver";
 
@@ -35,9 +35,9 @@ function directPlayInfo(): JellyfinPlaybackInfoResponse {
 
 describe("IINA autoplay resolver", () => {
     test("resolves and negotiates the next episode in the current season", async () => {
-        const requests: HttpRequestOptions[] = [];
+        const requests: JellyfinRequestOptions[] = [];
         const resolver = createAutoplayResolver({
-            async requestJson<T>(_context: HttpContext, options: HttpRequestOptions): Promise<T | null> {
+            async requestJson<T>(_context: JellyfinConnection, options: JellyfinRequestOptions): Promise<T | null> {
                 requests.push(options);
                 if (options.endpoint === "/Items/episode-1") {
                     return {

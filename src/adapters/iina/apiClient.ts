@@ -2,7 +2,9 @@ import { createIinaHttpTransport } from "./httpTransport";
 import {
     JellyfinClient,
     JellyfinHttpError,
-    JellyfinJsonError
+    JellyfinJsonError,
+    type JellyfinConnection,
+    type JellyfinRequestOptions
 } from "../../jellyfin/client";
 import { CLIENT_NAME, CLIENT_VERSION, DEVICE_NAME } from "./constants";
 
@@ -13,23 +15,9 @@ const client = new JellyfinClient(createIinaHttpTransport(http), {
     version: CLIENT_VERSION
 });
 
-export interface HttpContext {
-    serverUrl: string;
-    accessToken: string;
-    deviceId: string;
-}
-
-export interface HttpRequestOptions {
-    method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
-    endpoint: string;
-    query?: Record<string, string | number | boolean | null | undefined>;
-    body?: unknown;
-    headers?: Record<string, string>;
-}
-
 export async function requestJson<T>(
-    context: HttpContext,
-    options: HttpRequestOptions
+    context: JellyfinConnection,
+    options: JellyfinRequestOptions
 ): Promise<T | null> {
     try {
         return await client.requestJson<T>(context, options);

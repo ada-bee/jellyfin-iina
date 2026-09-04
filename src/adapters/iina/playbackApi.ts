@@ -5,9 +5,11 @@ import type {
     JellyfinPlaybackStopInfo
 } from "../../jellyfin/types";
 
-import { resolveAutoplayNextEpisode } from "./autoplay";
+import { createAutoplayResolver } from "./autoplayResolver";
 import { requestJson } from "./apiClient";
 import { requestMediaSegments } from "./segmentsApi";
+
+const resolveAutoplayNextEpisode = createAutoplayResolver({ requestJson });
 
 export class IinaPlaybackApi implements PlaybackApi {
     async reportStart(playback: PlaybackSession, positionTicks: number): Promise<void> {

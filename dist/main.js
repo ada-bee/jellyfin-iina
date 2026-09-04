@@ -1046,188 +1046,6 @@
     skipSegmentHandler = handler;
   }
 
-  // src/adapters/iina/httpTransport.ts
-  function createIinaHttpTransport(http) {
-    return {
-      async send(request) {
-        const options = {
-          params: {},
-          headers: request.headers,
-          data: request.body === undefined ? null : request.body
-        };
-        const response = await sendIinaRequest(http, request.method, request.url, options);
-        return {
-          status: response.statusCode || 0,
-          statusText: response.reason || "",
-          data: response.data,
-          text: response.text
-        };
-      }
-    };
-  }
-  function sendIinaRequest(http, method, url, options) {
-    switch (method) {
-      case "GET":
-        return http.get(url, options);
-      case "POST":
-        return http.post(url, options);
-      case "PUT":
-        return http.put(url, options);
-      case "PATCH":
-        return http.patch(url, options);
-      case "DELETE":
-        return http.delete(url, options);
-    }
-  }
-
-  // src/jellyfin/auth.ts
-  function buildMediaBrowserAuthorizationHeader(options) {
-    const parts = [
-      `Client="${options.clientName}"`,
-      `Device="${options.deviceName}"`,
-      `DeviceId="${options.deviceId}"`,
-      `Version="${options.version}"`
-    ];
-    if (options.token) {
-      parts.push(`Token="${options.token}"`);
-    }
-    return `MediaBrowser ${parts.join(", ")}`;
-  }
-
-  // src/jellyfin/client.ts
-  class JellyfinHttpError extends Error {
-    status;
-    endpoint;
-    statusText;
-    responseText;
-    constructor(status, endpoint, statusText, responseText) {
-      super(`Jellyfin request failed (${status}) for ${endpoint}.`);
-      this.status = status;
-      this.endpoint = endpoint;
-      this.statusText = statusText;
-      this.responseText = responseText;
-      this.name = "JellyfinHttpError";
-    }
-  }
-
-  class JellyfinJsonError extends Error {
-    endpoint;
-    snippet;
-    constructor(endpoint, snippet) {
-      super(`Expected JSON response for ${endpoint} but got: ${snippet}`.trim());
-      this.endpoint = endpoint;
-      this.snippet = snippet;
-      this.name = "JellyfinJsonError";
-    }
-  }
-
-  class JellyfinClient {
-    transport;
-    identity;
-    constructor(transport, identity) {
-      this.transport = transport;
-      this.identity = identity;
-    }
-    async requestJson(connection, options) {
-      const response = await this.send(connection, options);
-      if (response.data !== undefined && response.data !== null) {
-        if (typeof response.data !== "string") {
-          return response.data;
-        }
-        return this.parseJson(options.endpoint, response.data);
-      }
-      const responseText = response.text ? String(response.text).trim() : "";
-      if (!responseText) {
-        return null;
-      }
-      return this.parseJson(options.endpoint, responseText);
-    }
-    async send(connection, options) {
-      const request = this.buildRequest(connection, options);
-      const response = await this.transport.send(request);
-      if (response.status < 200 || response.status >= 300) {
-        throw new JellyfinHttpError(response.status, options.endpoint, response.statusText, response.text ? String(response.text) : "");
-      }
-      return response;
-    }
-    buildRequest(connection, options) {
-      const serverUrl = normalizeServerUrl(connection.serverUrl);
-      if (!isHttpsUrl(serverUrl)) {
-        throw new Error("Jellyfin server URL must start with https://");
-      }
-      const endpoint = options.endpoint.startsWith("/") ? options.endpoint : `/${options.endpoint}`;
-      const queryString = buildQueryString(options.query);
-      const headers = {
-        Authorization: buildMediaBrowserAuthorizationHeader({
-          clientName: this.identity.clientName,
-          deviceName: this.identity.deviceName,
-          deviceId: connection.deviceId,
-          version: this.identity.version,
-          token: connection.accessToken
-        }),
-        ...options.headers || {}
-      };
-      if (options.body !== undefined) {
-        headers["Content-Type"] = "application/json";
-      }
-      return {
-        method: options.method,
-        url: `${serverUrl}${endpoint}${queryString ? `?${queryString}` : ""}`,
-        headers,
-        ...options.body !== undefined ? { body: options.body } : {}
-      };
-    }
-    parseJson(endpoint, responseText) {
-      try {
-        return JSON.parse(responseText);
-      } catch (error) {
-        throw new JellyfinJsonError(endpoint, responseText.slice(0, 200));
-      }
-    }
-  }
-  function buildQueryString(query) {
-    if (!query) {
-      return "";
-    }
-    const parts = [];
-    Object.keys(query).forEach((key) => {
-      const value = query[key];
-      if (value === undefined || value === null) {
-        return;
-      }
-      const values = Array.isArray(value) ? value : [value];
-      values.forEach((entry) => {
-        parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(entry))}`);
-      });
-    });
-    return parts.join("&");
-  }
-
-  // src/adapters/iina/apiClient.ts
-  var { http } = iina;
-  var client = new JellyfinClient(createIinaHttpTransport(http), {
-    clientName: CLIENT_NAME,
-    deviceName: DEVICE_NAME,
-    version: CLIENT_VERSION
-  });
-  async function requestJson(context, options) {
-    try {
-      return await client.requestJson(context, options);
-    } catch (error) {
-      throw mapClientError(error);
-    }
-  }
-  function mapClientError(error) {
-    if (error instanceof JellyfinHttpError) {
-      const detail = error.responseText ? ` - ${error.responseText.slice(0, 200)}` : "";
-      return new Error(`HTTP ${error.status} ${error.statusText}${detail}`.trim());
-    }
-    if (error instanceof JellyfinJsonError) {
-      return new Error(`Expected JSON response but got: ${error.snippet}`.trim());
-    }
-    return error;
-  }
-
   // src/playback/episodeOrder.ts
   function hasIndex(item) {
     return typeof item.IndexNumber === "number" && Number.isFinite(item.IndexNumber);
@@ -1289,7 +1107,7 @@
       playSessionId: options.playSessionId || "",
       api_key: options.accessToken
     };
-    const queryString = buildQueryString2(params);
+    const queryString = buildQueryString(params);
     return `${baseUrl}/Videos/${encodeURIComponent(options.itemId)}/stream?${queryString}`;
   }
   function buildPlaybackInfoRequest(userId, deviceProfile, selection = {}) {
@@ -1473,7 +1291,7 @@
   function formatTitleIndex(index) {
     return index === null || index === undefined ? "00" : String(index).padStart(2, "0");
   }
-  function buildQueryString2(params) {
+  function buildQueryString(params) {
     const parts = [];
     Object.keys(params).forEach((key) => {
       const value = params[key];
@@ -1606,8 +1424,187 @@
     return Boolean(playback.serverUrl && playback.accessToken && playback.deviceId && playback.userId);
   }
 
-  // src/adapters/iina/autoplay.ts
-  var resolveAutoplayNextEpisode = createAutoplayResolver({ requestJson });
+  // src/adapters/iina/httpTransport.ts
+  function createIinaHttpTransport(http) {
+    return {
+      async send(request) {
+        const options = {
+          params: {},
+          headers: request.headers,
+          data: request.body === undefined ? null : request.body
+        };
+        const response = await sendIinaRequest(http, request.method, request.url, options);
+        return {
+          status: response.statusCode || 0,
+          statusText: response.reason || "",
+          data: response.data,
+          text: response.text
+        };
+      }
+    };
+  }
+  function sendIinaRequest(http, method, url, options) {
+    switch (method) {
+      case "GET":
+        return http.get(url, options);
+      case "POST":
+        return http.post(url, options);
+      case "PUT":
+        return http.put(url, options);
+      case "PATCH":
+        return http.patch(url, options);
+      case "DELETE":
+        return http.delete(url, options);
+    }
+  }
+
+  // src/jellyfin/auth.ts
+  function buildMediaBrowserAuthorizationHeader(options) {
+    const parts = [
+      `Client="${options.clientName}"`,
+      `Device="${options.deviceName}"`,
+      `DeviceId="${options.deviceId}"`,
+      `Version="${options.version}"`
+    ];
+    if (options.token) {
+      parts.push(`Token="${options.token}"`);
+    }
+    return `MediaBrowser ${parts.join(", ")}`;
+  }
+
+  // src/jellyfin/client.ts
+  class JellyfinHttpError extends Error {
+    status;
+    endpoint;
+    statusText;
+    responseText;
+    constructor(status, endpoint, statusText, responseText) {
+      super(`Jellyfin request failed (${status}) for ${endpoint}.`);
+      this.status = status;
+      this.endpoint = endpoint;
+      this.statusText = statusText;
+      this.responseText = responseText;
+      this.name = "JellyfinHttpError";
+    }
+  }
+
+  class JellyfinJsonError extends Error {
+    endpoint;
+    snippet;
+    constructor(endpoint, snippet) {
+      super(`Expected JSON response for ${endpoint} but got: ${snippet}`.trim());
+      this.endpoint = endpoint;
+      this.snippet = snippet;
+      this.name = "JellyfinJsonError";
+    }
+  }
+
+  class JellyfinClient {
+    transport;
+    identity;
+    constructor(transport, identity) {
+      this.transport = transport;
+      this.identity = identity;
+    }
+    async requestJson(connection, options) {
+      const response = await this.send(connection, options);
+      if (response.data !== undefined && response.data !== null) {
+        if (typeof response.data !== "string") {
+          return response.data;
+        }
+        return this.parseJson(options.endpoint, response.data);
+      }
+      const responseText = response.text ? String(response.text).trim() : "";
+      if (!responseText) {
+        return null;
+      }
+      return this.parseJson(options.endpoint, responseText);
+    }
+    async send(connection, options) {
+      const request = this.buildRequest(connection, options);
+      const response = await this.transport.send(request);
+      if (response.status < 200 || response.status >= 300) {
+        throw new JellyfinHttpError(response.status, options.endpoint, response.statusText, response.text ? String(response.text) : "");
+      }
+      return response;
+    }
+    buildRequest(connection, options) {
+      const serverUrl = normalizeServerUrl(connection.serverUrl);
+      if (!isHttpsUrl(serverUrl)) {
+        throw new Error("Jellyfin server URL must start with https://");
+      }
+      const endpoint = options.endpoint.startsWith("/") ? options.endpoint : `/${options.endpoint}`;
+      const queryString = buildQueryString2(options.query);
+      const headers = {
+        Authorization: buildMediaBrowserAuthorizationHeader({
+          clientName: this.identity.clientName,
+          deviceName: this.identity.deviceName,
+          deviceId: connection.deviceId,
+          version: this.identity.version,
+          token: connection.accessToken
+        }),
+        ...options.headers || {}
+      };
+      if (options.body !== undefined) {
+        headers["Content-Type"] = "application/json";
+      }
+      return {
+        method: options.method,
+        url: `${serverUrl}${endpoint}${queryString ? `?${queryString}` : ""}`,
+        headers,
+        ...options.body !== undefined ? { body: options.body } : {}
+      };
+    }
+    parseJson(endpoint, responseText) {
+      try {
+        return JSON.parse(responseText);
+      } catch (error) {
+        throw new JellyfinJsonError(endpoint, responseText.slice(0, 200));
+      }
+    }
+  }
+  function buildQueryString2(query) {
+    if (!query) {
+      return "";
+    }
+    const parts = [];
+    Object.keys(query).forEach((key) => {
+      const value = query[key];
+      if (value === undefined || value === null) {
+        return;
+      }
+      const values = Array.isArray(value) ? value : [value];
+      values.forEach((entry) => {
+        parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(entry))}`);
+      });
+    });
+    return parts.join("&");
+  }
+
+  // src/adapters/iina/apiClient.ts
+  var { http } = iina;
+  var client = new JellyfinClient(createIinaHttpTransport(http), {
+    clientName: CLIENT_NAME,
+    deviceName: DEVICE_NAME,
+    version: CLIENT_VERSION
+  });
+  async function requestJson(context, options) {
+    try {
+      return await client.requestJson(context, options);
+    } catch (error) {
+      throw mapClientError(error);
+    }
+  }
+  function mapClientError(error) {
+    if (error instanceof JellyfinHttpError) {
+      const detail = error.responseText ? ` - ${error.responseText.slice(0, 200)}` : "";
+      return new Error(`HTTP ${error.status} ${error.statusText}${detail}`.trim());
+    }
+    if (error instanceof JellyfinJsonError) {
+      return new Error(`Expected JSON response but got: ${error.snippet}`.trim());
+    }
+    return error;
+  }
 
   // src/adapters/iina/segmentsApi.ts
   async function requestMediaSegments(playback) {
@@ -1627,6 +1624,8 @@
   }
 
   // src/adapters/iina/playbackApi.ts
+  var resolveAutoplayNextEpisode = createAutoplayResolver({ requestJson });
+
   class IinaPlaybackApi {
     async reportStart(playback, positionTicks) {
       const context = playback;

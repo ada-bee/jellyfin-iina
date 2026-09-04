@@ -3,11 +3,11 @@ import { fetchItemDetails, fetchPlaybackInfo } from "../adapters/browser/sidebar
 import { showError } from "./views";
 import { state } from "./store";
 import { getDeviceId } from "../adapters/browser/storage";
-import { createPlayItem } from "./playbackService";
+import { createPlayItem, type SidebarPlaybackDependencies } from "./playbackService";
 
 export type { PlaybackContext } from "./playbackService";
 
-export const playItem = createPlayItem({
+const playbackDependencies = {
     fetchPlaybackInfo,
     fetchItemDetails,
     getConnection: () => ({
@@ -15,7 +15,11 @@ export const playItem = createPlayItem({
         accessToken: state.accessToken,
         userId: state.userId
     }),
-    getDeviceId,
+    getDeviceId
+} satisfies Omit<SidebarPlaybackDependencies, "send" | "reportError">;
+
+export const playItem = createPlayItem({
+    ...playbackDependencies,
     send: message => iina.postMessage(MESSAGE_NAMES.PlayItem, message),
     reportError: error => {
         console.error("Failed to get playback info:", error);
@@ -24,14 +28,7 @@ export const playItem = createPlayItem({
 });
 
 export const queueItem = createPlayItem({
-    fetchPlaybackInfo,
-    fetchItemDetails,
-    getConnection: () => ({
-        serverUrl: state.serverUrl,
-        accessToken: state.accessToken,
-        userId: state.userId
-    }),
-    getDeviceId,
+    ...playbackDependencies,
     send: message => iina.postMessage(MESSAGE_NAMES.QueueItem, message),
     reportError: error => {
         console.error("Failed to get queue item playback info:", error);

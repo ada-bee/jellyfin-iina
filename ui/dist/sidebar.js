@@ -2602,7 +2602,7 @@
   }
 
   // src/sidebar/playback.ts
-  var playItem = createPlayItem({
+  var playbackDependencies = {
     fetchPlaybackInfo,
     fetchItemDetails,
     getConnection: () => ({
@@ -2610,7 +2610,10 @@
       accessToken: state.accessToken,
       userId: state.userId
     }),
-    getDeviceId,
+    getDeviceId
+  };
+  var playItem = createPlayItem({
+    ...playbackDependencies,
     send: (message) => iina.postMessage(MESSAGE_NAMES.PlayItem, message),
     reportError: (error) => {
       console.error("Failed to get playback info:", error);
@@ -2618,14 +2621,7 @@
     }
   });
   var queueItem = createPlayItem({
-    fetchPlaybackInfo,
-    fetchItemDetails,
-    getConnection: () => ({
-      serverUrl: state.serverUrl,
-      accessToken: state.accessToken,
-      userId: state.userId
-    }),
-    getDeviceId,
+    ...playbackDependencies,
     send: (message) => iina.postMessage(MESSAGE_NAMES.QueueItem, message),
     reportError: (error) => {
       console.error("Failed to get queue item playback info:", error);
