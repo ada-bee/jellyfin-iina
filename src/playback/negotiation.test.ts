@@ -98,12 +98,32 @@ describe("Jellyfin playback negotiation", () => {
             UserId: "user-id",
             MediaSourceId: "source-1080",
             AudioStreamIndex: 2,
-            SubtitleStreamIndex: null,
+            SubtitleStreamIndex: -1,
             DeviceProfile: IINA_DEVICE_PROFILE,
             EnableDirectPlay: true,
             EnableDirectStream: true,
             EnableTranscoding: true
         });
+    });
+
+    test("distinguishes default, selected, and disabled subtitles at the API boundary", () => {
+        expect(buildPlaybackInfoRequest("user-id", IINA_DEVICE_PROFILE).SubtitleStreamIndex)
+            .toBeUndefined();
+        expect(buildPlaybackInfoRequest("user-id", IINA_DEVICE_PROFILE, {
+            subtitleStreamIndex: 4
+        }).SubtitleStreamIndex).toBe(4);
+        const response: JellyfinPlaybackInfoResponse = {
+            PlaySessionId: "session-id",
+            MediaSources: [{
+                Id: "source",
+                SupportsDirectPlay: true,
+                DefaultSubtitleStreamIndex: 4
+            }]
+        };
+        expect(buildPlaybackHandoff(response, {
+            ...baseOptions,
+            subtitleStreamIndex: null
+        }).subtitleStreamIndex).toBeNull();
     });
 
     test("advertises IINA as an uncapped external player", () => {

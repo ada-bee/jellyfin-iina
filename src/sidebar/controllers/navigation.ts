@@ -4,6 +4,7 @@ import { sidebarStore, state, type SearchFilter } from "../../sidebar/store";
 import { log, normalizeQuery } from "../runtimeUtils";
 import {
     cancelPendingViewRequest,
+    clearSidebarRequestCaches,
     loadHome,
     performSearch,
     reloadEpisode,
@@ -104,6 +105,7 @@ export function handleRetry(): void {
 
 export function goHomeFresh(reason: string = ""): void {
     cancelScheduledSearch();
+    clearSidebarRequestCaches();
     sidebarStore.navigateHome();
     state.currentLibrary = null;
     state.currentSeries = null;

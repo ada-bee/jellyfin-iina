@@ -415,7 +415,8 @@
       }
       const pending = this.takeHandoff(path);
       if (!pending) {
-        this.clearPlaybackState("non-Jellyfin file loaded");
+        this.stopActivePlayback("non-Jellyfin file loaded");
+        this.prunePendingHandoffs();
         return;
       }
       try {
@@ -813,6 +814,14 @@
         this.model.handoffs.delete(url);
       }
       return pending;
+    }
+    prunePendingHandoffs() {
+      const queuedUrls = new Set(this.dependencies.player.getPlaylist().map((entry) => entry.filename));
+      for (const url of this.model.handoffs.keys()) {
+        if (!queuedUrls.has(url)) {
+          this.model.handoffs.delete(url);
+        }
+      }
     }
     hasQueuedPlayback() {
       return this.dependencies.player.getPlaylist().some((entry) => Boolean(entry?.filename) && this.model.handoffs.has(entry.filename));
@@ -1288,7 +1297,7 @@
       UserId: userId,
       MediaSourceId: selection.mediaSourceId,
       AudioStreamIndex: selection.audioStreamIndex,
-      SubtitleStreamIndex: selection.subtitleStreamIndex,
+      SubtitleStreamIndex: selection.subtitleStreamIndex === null ? -1 : selection.subtitleStreamIndex,
       DeviceProfile: deviceProfile,
       EnableDirectPlay: true,
       EnableDirectStream: true,

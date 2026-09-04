@@ -111,7 +111,8 @@ export class PlaybackController {
 
         const pending = this.takeHandoff(path);
         if (!pending) {
-            this.clearPlaybackState("non-Jellyfin file loaded");
+            this.stopActivePlayback("non-Jellyfin file loaded");
+            this.prunePendingHandoffs();
             return;
         }
 
@@ -591,6 +592,17 @@ export class PlaybackController {
             this.model.handoffs.delete(url);
         }
         return pending;
+    }
+
+    private prunePendingHandoffs(): void {
+        const queuedUrls = new Set(
+            this.dependencies.player.getPlaylist().map(entry => entry.filename)
+        );
+        for (const url of this.model.handoffs.keys()) {
+            if (!queuedUrls.has(url)) {
+                this.model.handoffs.delete(url);
+            }
+        }
     }
 
     private hasQueuedPlayback(): boolean {

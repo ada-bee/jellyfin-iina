@@ -106,6 +106,36 @@ describe("PlaybackController", () => {
         expect(harness.player.seeks).toEqual([24]);
     });
 
+    test("preserves queued Jellyfin playback across intervening local files", async () => {
+        const harness = createHarness();
+        const queued = handoff("queued");
+        const removed = handoff("removed");
+        harness.player.path = "/local/first.mkv";
+        harness.controller.queue({ playback: queued, title: "Queued title", resumeSeconds: 42 });
+        harness.controller.queue({ playback: removed });
+        harness.player.playlist = [
+            { filename: "/local/second.mkv", current: true },
+            { filename: queued.url }
+        ];
+
+        harness.player.path = "/local/second.mkv";
+        harness.controller.onFileLoaded();
+        harness.player.path = queued.url;
+        harness.controller.onFileLoaded();
+        harness.clock.runTimeout(CONFIG.resumeSeekDelayMs);
+        await settle();
+
+        expect(harness.api.starts).toEqual(["session-queued"]);
+        expect(harness.player.seeks).toEqual([42]);
+        expect(harness.player.titles).toEqual(["Queued title"]);
+        expect(harness.player.subtitles).toEqual(["queued"]);
+
+        harness.controller.onEndFile();
+        harness.player.path = removed.url;
+        harness.controller.onFileLoaded();
+        expect(harness.api.starts).toEqual(["session-queued"]);
+    });
+
     test("ignores stale autoplay and segment responses", async () => {
         const harness = createHarness();
         const staleAutoplay = deferred<AutoplayResult | null>();

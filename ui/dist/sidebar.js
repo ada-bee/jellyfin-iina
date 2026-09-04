@@ -389,7 +389,7 @@
       UserId: userId,
       MediaSourceId: selection.mediaSourceId,
       AudioStreamIndex: selection.audioStreamIndex,
-      SubtitleStreamIndex: selection.subtitleStreamIndex,
+      SubtitleStreamIndex: selection.subtitleStreamIndex === null ? -1 : selection.subtitleStreamIndex,
       DeviceProfile: deviceProfile,
       EnableDirectPlay: true,
       EnableDirectStream: true,
@@ -3406,6 +3406,7 @@
   }
   function goHomeFresh(reason = "") {
     cancelScheduledSearch();
+    clearSidebarRequestCaches();
     sidebarStore.navigateHome();
     state.currentLibrary = null;
     state.currentSeries = null;
