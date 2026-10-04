@@ -2,9 +2,11 @@
 
 Plugin for accessing Movies and TV series from your Jellyfin server in IINA. Displays a simplified view of your library that lets you browse and play items right from IINA. **Not affiliated with the official Jellyfin Project.**
 
-Version 3 requires Jellyfin 12 and IINA 1.5 or newer. Use the existing 2.x release with older Jellyfin servers.
+## Requirements
 
-If you like this plugin you might also be interested in [YouTube IINA Plugin](https://github.com/ada-bee/youtube-iina).
+- Jellyfin 12
+- IINA 1.5
+- HTTPS connection to your Jellyfin server
 
 ## Installation
 
@@ -12,26 +14,20 @@ If you like this plugin you might also be interested in [YouTube IINA Plugin](ht
 2. Select Install from GitHub.
 3. Enter `ada-bee/jellyfin-iina`
 4. Restart IINA if it does not appear immediately.
-
-## Usage
-
-- Open the Jellyfin sidebar with Shift+J.
-- Warning: **https is required** since v2.0.0
+5. (Optional) Configure the plugin in IINA Settings.
 
 ## Features
 
-- Direct play from Jellyfin. Remuxing and transcoding are planned for 3.1.0.
-- Library browsing. Home screen shows Continue Watching and Recently Added. You can search for anything else.
-- Optional backdrop previews while browsing and when playback is paused.
-- Playback progress reporting back to the Jellyfin server.
-- Resume playback from last position.
-- External subtitles through IINA's native subtitle controls. Standalone VobSub `.idx`/`.sub` pairs are not supported.
-- Auto-play next episode (can be disabled). Next episode is added to the mpv playlist for native feel and media key support.
-- Intro/credits skipping using Jellyfin media segments (can be disabled). Clickable Skip button shows up during Intro/Credits similarly to the web interface.
+- Browse movie and TV libraries. Music is not supported.
+- Multiple versions and track selection.
+- Direct play. Transcoding support is TBA.
+- Playback reporting and resume.
+- Automatic playback of the next episode.
+- Intro and credits skipping with overlay buttons.
 
-## Disclaimer
+## Screenshots
 
-This was made primarily for me and was largely vibe coded. While this is my daily driver and I intend to maintain, it should be considered mostly feature complete as it already does everything I need.
+![Home, movie details, and series details](images/screenshot.png)
 
 ## Attribution
 
