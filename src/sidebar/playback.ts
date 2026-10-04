@@ -34,4 +34,9 @@ export const queueItem = createPlayItem({
         console.error("Failed to get queue item playback info:", error);
         showError(error instanceof Error ? error.message : "Unable to queue this item.");
     }
-});
+}, "ordered");
+
+export function cancelPendingPlaybackRequests(): void {
+    playItem.cancel();
+    queueItem.cancel();
+}

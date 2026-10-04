@@ -32,6 +32,8 @@ import {
 import { clearAuthState, updateAuthState } from "../../jellyfin/session";
 import { shouldOpenJellyfinLibrary } from "../../sidebar/launch";
 import { isHttpsUrl, logDebug, normalizeServerUrl } from "./utils";
+import type { CredentialRequest } from "../../jellyfin/credentials";
+import { handleCredentialRequest, type KeychainStore } from "./credentials";
 
 const { core, event, menu, mpv, preferences, sidebar, utils } = iina;
 
@@ -75,7 +77,7 @@ function hideSidebar(): void {
 }
 
 function showHttpsAlert(): void {
-    utils.ask("Jellyfin requires an https:// server URL. HTTP is not supported.");
+    utils.ask("This plugin requires an https:// server URL. HTTP is not supported.");
 }
 
 function getPreferEpisodeImagesInNextUp(): boolean {
@@ -194,6 +196,12 @@ event.on("iina.window-loaded", () => {
     loadMediaOverlay();
     sidebar.loadFile("ui/sidebar.html");
 
+    sidebar.onMessage(MESSAGE_NAMES.CredentialRequest, (request: CredentialRequest) => {
+        sidebar.postMessage(
+            MESSAGE_NAMES.CredentialResponse,
+            handleCredentialRequest(request, utils as unknown as KeychainStore)
+        );
+    });
     sidebar.onMessage(MESSAGE_NAMES.PlayItem, (data: PlayItemPayload) => {
         logDebug("Jellyfin: Received playItem");
         playbackController.play(data);
@@ -235,6 +243,7 @@ event.on("iina.window-loaded", () => {
     });
 
     sidebar.onMessage(MESSAGE_NAMES.AuthCleared, () => {
+        playbackController.onAuthCleared();
         clearBackdropContext();
         clearAuthState();
     });

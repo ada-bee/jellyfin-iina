@@ -67,14 +67,18 @@ function findMpvTrackId(
     streamIndex: number | null | undefined,
     externalSubtitles: ExternalSubtitleTrack[]
 ): number | null | undefined {
-    if (streamIndex === undefined || streamIndex === null) {
-        return streamIndex;
+    if (streamIndex === undefined) {
+        return undefined;
     }
-    const externalUrl = externalSubtitles.find(track => track.index === streamIndex)?.url;
+    if (streamIndex === null || streamIndex < 0) {
+        return null;
+    }
+    const externalTrack = externalSubtitles.find(track => track.index === streamIndex);
     const track = trackList.find(candidate => (
         candidate.type === type
-        && (candidate["ff-index"] === streamIndex
-            || Boolean(externalUrl && candidate["external-filename"] === externalUrl))
+        && (externalTrack
+            ? matchesExternalTrack(candidate, externalTrack)
+            : !candidate.external && candidate["ff-index"] === streamIndex)
     ));
     return typeof track?.id === "number" ? track.id : undefined;
 }
@@ -105,6 +109,11 @@ function getSubtitleStreamIndex(
         return getInternalStreamIndex(track);
     }
 
-    const filename = track["external-filename"] || "";
-    return externalSubtitles.find(subtitle => subtitle.url === filename)?.index ?? null;
+    return externalSubtitles.find(subtitle => matchesExternalTrack(track, subtitle))?.index ?? null;
+}
+
+function matchesExternalTrack(track: MpvTrackInfo, subtitle: ExternalSubtitleTrack): boolean {
+    const filename = track["external-filename"];
+    return Boolean(track.external && filename
+        && (filename === subtitle.localPath || filename === subtitle.url));
 }

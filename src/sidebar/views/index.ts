@@ -30,4 +30,4 @@ export {
     renderSeriesSeasons
 } from "./details";
 export { renderHomeSections } from "./home";
-export { renderSearchResults, setSearchFilter } from "./search";
+export { clearSearchResults, renderSearchResults, setSearchFilter } from "./search";

@@ -11,11 +11,10 @@ import type {
 } from "./ports";
 
 interface ActivePlayback {
+    url: string;
     session: PlaybackSession;
     lastKnownPositionTicks: number;
     reportingStarted: boolean;
-    autoplayQueued: boolean;
-    nextItemId: string;
     segments: NormalizedSegment[];
 }
 
@@ -29,6 +28,8 @@ interface PendingPlayback {
 interface PlaybackModel {
     active: ActivePlayback | null;
     handoffs: Map<string, PendingPlayback>;
+    requestedUrl: string;
+    loadingUrl: string;
     resumeTimer: unknown | null;
     playbackTimer: unknown | null;
     playbackTickCount: number;
@@ -43,6 +44,8 @@ export class PlaybackController {
     private readonly model: PlaybackModel = {
         active: null,
         handoffs: new Map(),
+        requestedUrl: "",
+        loadingUrl: "",
         resumeTimer: null,
         playbackTimer: null,
         playbackTickCount: 0,
@@ -64,11 +67,20 @@ export class PlaybackController {
         }
 
         this.registerPendingHandoff(request, true);
+        this.model.requestedUrl = handoff.url;
+        this.model.loadingUrl = "";
         this.dependencies.logger.debug("Jellyfin: Playing requested stream");
 
         this.stopActivePlayback("replacement requested");
-        this.dependencies.player.loadReplacement(handoff, request.title || "");
-        this.dependencies.view.hideSidebar();
+        this.dependencies.player.clearExternalSubtitles();
+        try {
+            this.dependencies.player.loadReplacement(handoff, request.title || "");
+            this.dependencies.view.hideSidebar();
+        } catch (error) {
+            this.logFailure("load playback", error);
+            this.clearPlaybackState("playback command failed");
+            this.handleNoNextEpisode("playback command failed");
+        }
     }
 
     queue(request: PlaybackRequest): void {
@@ -93,10 +105,20 @@ export class PlaybackController {
         }
     }
 
+    onStartFile(path = this.dependencies.player.getPath()): void {
+        this.dependencies.player.clearExternalSubtitles();
+        this.model.loadingUrl = this.model.handoffs.has(path) ? path : "";
+        this.prunePendingHandoffs();
+    }
+
     onFileLoaded(): void {
         const path = this.dependencies.player.getPath();
         if (!path) {
             return;
+        }
+        this.model.loadingUrl = "";
+        if (this.model.requestedUrl === path) {
+            this.model.requestedUrl = "";
         }
 
         if (this.dependencies.config.isLibraryHost(path)) {
@@ -133,15 +155,27 @@ export class PlaybackController {
 
     onEndFile(): void {
         const active = this.model.active;
+        const loadingUrl = this.model.loadingUrl;
+        this.model.loadingUrl = "";
         if (!active) {
+            this.handleLoadFailure(loadingUrl);
             return;
         }
 
         this.dependencies.logger.debug("Jellyfin: Playback ended");
-        const autoplayQueued = active.autoplayQueued;
         this.stopActivePlayback("end of playback");
-        if (!autoplayQueued && !this.hasQueuedPlayback()) {
+        if (!this.hasQueuedPlayback(active.url)) {
             this.handleNoNextEpisode("end of playback");
+        }
+    }
+
+    private handleLoadFailure(url: string): void {
+        if (!url || (this.model.requestedUrl && this.model.requestedUrl !== url)) {
+            return;
+        }
+        this.model.requestedUrl = "";
+        if (!this.hasQueuedPlayback(url)) {
+            this.handleNoNextEpisode("stream failed before file load");
         }
     }
 
@@ -170,6 +204,21 @@ export class PlaybackController {
 
     onWindowClose(): void {
         this.clearPlaybackState("window close");
+    }
+
+    onAuthCleared(): void {
+        const hasPlayback = Boolean(this.model.active || this.model.loadingUrl || this.model.requestedUrl);
+        const playlist = this.dependencies.player.getPlaylist();
+        const jellyfinUrls = new Set(this.model.handoffs.keys());
+        this.clearPlaybackState("authentication cleared");
+        for (let index = playlist.length - 1; index >= 0; index -= 1) {
+            if (jellyfinUrls.has(playlist[index].filename)) {
+                this.dependencies.player.removePlaylistEntry(index);
+            }
+        }
+        if (hasPlayback) {
+            this.handleNoNextEpisode("authentication cleared");
+        }
     }
 
     private pauseLibraryHost(): void {
@@ -209,11 +258,10 @@ export class PlaybackController {
         this.stopSegmentRuntime();
 
         const active: ActivePlayback = {
+            url: pending.handoff.url,
             session,
             lastKnownPositionTicks: 0,
             reportingStarted: false,
-            autoplayQueued: false,
-            nextItemId: "",
             segments: []
         };
         this.model.active = active;
@@ -304,7 +352,7 @@ export class PlaybackController {
             this.model.playbackTickCount = 0;
             void this.reportProgress();
         }
-        if (active.autoplayQueued || this.hasQueuedPlayback()) {
+        if (this.hasQueuedPlayback(active.url)) {
             return;
         }
 
@@ -345,6 +393,7 @@ export class PlaybackController {
         }
         const positionTicks = currentPosition || active.lastKnownPositionTicks || 0;
         this.model.active = null;
+        this.dependencies.player.clearExternalSubtitles();
         this.dependencies.view.clearActiveBackdropItem();
         this.dependencies.logger.debug(`Jellyfin: Stopping playback (${reason})`);
         this.cancelResume();
@@ -364,6 +413,9 @@ export class PlaybackController {
         this.cancelResume();
         this.resetPlaybackRuntime();
         this.model.handoffs.clear();
+        this.model.requestedUrl = "";
+        this.model.loadingUrl = "";
+        this.dependencies.player.clearExternalSubtitles();
     }
 
     private resetPlaybackRuntime(): void {
@@ -409,27 +461,20 @@ export class PlaybackController {
     }
 
     private async requestAutoplay(active: ActivePlayback): Promise<void> {
-        active.autoplayQueued = false;
         try {
             const result = await this.dependencies.api.resolveNextEpisode(active.session);
             if (this.model.active !== active) {
                 return;
             }
-            active.nextItemId = result?.handoff.itemId || "";
             if (result) {
-                this.queueNextEpisode(active, result.handoff, result.title);
+                this.queueNextEpisode(result.handoff, result.title);
             }
         } catch (error) {
-            if (this.model.active === active) {
-                active.nextItemId = "";
-                active.autoplayQueued = false;
-            }
             this.logFailure("autoplay lookup", error);
         }
     }
 
     private queueNextEpisode(
-        active: ActivePlayback,
         handoff: PlaybackHandoff,
         title: string
     ): void {
@@ -439,8 +484,7 @@ export class PlaybackController {
             if (currentIndex !== -1) {
                 const nextUrl = playlist[currentIndex + 1]?.filename || "";
                 const nextItemId = this.model.handoffs.get(nextUrl)?.handoff.itemId || "";
-                if (nextItemId && nextItemId === active.nextItemId) {
-                    active.autoplayQueued = true;
+                if (nextItemId && nextItemId === handoff.itemId) {
                     return;
                 }
             }
@@ -452,7 +496,6 @@ export class PlaybackController {
                 resetPlaylist: false
             });
             this.dependencies.player.loadNext(handoff, title);
-            active.autoplayQueued = true;
             this.dependencies.logger.debug("Jellyfin: Queued next episode");
         } catch (error) {
             this.logFailure("queue next episode", error);
@@ -589,7 +632,8 @@ export class PlaybackController {
     private takeHandoff(url: string): PendingPlayback | null {
         const pending = this.model.handoffs.get(url) || null;
         if (pending) {
-            this.model.handoffs.delete(url);
+            // Native playlist replays need the context, but resume and playlist reset apply only once.
+            this.model.handoffs.set(url, { ...pending, resumeSeconds: 0, resetPlaylist: false });
         }
         return pending;
     }
@@ -599,16 +643,21 @@ export class PlaybackController {
             this.dependencies.player.getPlaylist().map(entry => entry.filename)
         );
         for (const url of this.model.handoffs.keys()) {
-            if (!queuedUrls.has(url)) {
+            if (!queuedUrls.has(url) && url !== this.model.requestedUrl) {
                 this.model.handoffs.delete(url);
             }
         }
     }
 
-    private hasQueuedPlayback(): boolean {
-        return this.dependencies.player.getPlaylist().some(entry => (
-            Boolean(entry?.filename) && this.model.handoffs.has(entry.filename)
-        ));
+    private hasQueuedPlayback(endedUrl: string): boolean {
+        const playlist = this.dependencies.player.getPlaylist();
+        const endedIndex = playlist.findIndex(entry => entry.filename === endedUrl);
+        const currentIndex = findCurrentPlaylistIndex(playlist);
+        if (currentIndex !== -1 && currentIndex !== endedIndex) {
+            return true;
+        }
+        return endedIndex !== -1
+            && playlist.slice(endedIndex + 1).some(entry => Boolean(entry.filename));
     }
 
     private handleNoNextEpisode(reason: string): void {

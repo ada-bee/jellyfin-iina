@@ -1,8 +1,11 @@
 import type { PlaybackHandoff } from "./types";
+import type { CredentialRequest, CredentialResponse } from "./credentials";
 
 export const MESSAGE_NAMES = {
     AuthUpdated: "authUpdated",
     AuthCleared: "authCleared",
+    CredentialRequest: "credentialRequest",
+    CredentialResponse: "credentialResponse",
     PlayItem: "playItem",
     QueueItem: "queueItem",
     BackdropContext: "backdropContext",
@@ -68,6 +71,7 @@ export interface OverlaySkipButtonPayload {
 export type SkipSegmentPayload = EmptyPayload;
 
 export interface UiToPluginMessagePayloads {
+    credentialRequest: CredentialRequest;
     authUpdated: AuthUpdatedPayload;
     authCleared: AuthClearedPayload;
     playItem: PlayItemPayload;
@@ -78,6 +82,7 @@ export interface UiToPluginMessagePayloads {
 }
 
 export interface PluginToUiMessagePayloads {
+    credentialResponse: CredentialResponse;
     refreshSidebar: RefreshSidebarPayload;
     sidebarPreferences: SidebarPreferencesPayload;
     overlayBackdrops: OverlayBackdropsPayload;

@@ -60,8 +60,8 @@ describe("JellyfinClient", () => {
                 "?includeSegmentTypes=Intro&includeSegmentTypes=Outro",
             body: { enabled: true },
             headers: {
-                Authorization: "MediaBrowser Client=\"Jellyfin IINA\", Device=\"IINA\", " +
-                    "DeviceId=\"device-id\", Version=\"3.0.0\", Token=\"secret token\"",
+                Authorization: "MediaBrowser Client=\"Jellyfin%20IINA\", Device=\"IINA\", " +
+                    "DeviceId=\"device-id\", Version=\"3.0.0\", Token=\"secret%20token\"",
                 "Content-Type": "application/json",
                 "X-Test": "value"
             }
@@ -145,5 +145,38 @@ describe("JellyfinClient", () => {
             endpoint: "/Items"
         })).rejects.toThrow("Jellyfin server URL must start with https://");
         expect(requests).toHaveLength(0);
+    });
+
+    test("redacts credentials echoed by the server or transport", async () => {
+        const echoed = `ApiKey=${encodeURIComponent(connection.accessToken)}`;
+        const failed = createClient({
+            status: 403,
+            statusText: "Forbidden",
+            text: `Request /Videos/item?${echoed}; Token="${connection.accessToken}"`
+        });
+        const failure = await failed.client.requestJson(connection, {
+            method: "GET", endpoint: "/Items"
+        }).catch(error => error as JellyfinHttpError);
+        expect(failure.responseText).not.toContain(connection.accessToken);
+        expect(failure.responseText).not.toContain(encodeURIComponent(connection.accessToken));
+
+        const transportFailure = new JellyfinClient({
+            send: async () => { throw new Error(`Cannot connect: ${connection.accessToken}, password-value`); }
+        }, identity);
+        await expect(transportFailure.requestJson(connection, {
+            method: "POST", endpoint: "/Users/AuthenticateByName", body: { Pw: "password-value" }
+        })).rejects.toThrow("Cannot connect: [redacted], [redacted]");
+    });
+
+    test("does not display a malformed response containing authentication data", async () => {
+        const { client } = createClient({
+            status: 200,
+            statusText: "OK",
+            text: `not JSON: {"AccessToken":"${connection.accessToken}"}`
+        });
+        const error = await client.requestJson(connection, { method: "GET", endpoint: "/Items" })
+            .catch(failure => failure as JellyfinJsonError);
+        expect(error.message).toBe("Jellyfin returned invalid JSON for /Items.");
+        expect(error.snippet).not.toContain(connection.accessToken);
     });
 });

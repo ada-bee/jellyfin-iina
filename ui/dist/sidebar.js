@@ -3,6 +3,8 @@
   var MESSAGE_NAMES = {
     AuthUpdated: "authUpdated",
     AuthCleared: "authCleared",
+    CredentialRequest: "credentialRequest",
+    CredentialResponse: "credentialResponse",
     PlayItem: "playItem",
     QueueItem: "queueItem",
     BackdropContext: "backdropContext",
@@ -219,23 +221,127 @@
   // src/jellyfin/auth.ts
   function buildMediaBrowserAuthorizationHeader(options) {
     const parts = [
-      `Client="${options.clientName}"`,
-      `Device="${options.deviceName}"`,
-      `DeviceId="${options.deviceId}"`,
-      `Version="${options.version}"`
+      `Client="${escapeHeaderValue(options.clientName)}"`,
+      `Device="${escapeHeaderValue(options.deviceName)}"`,
+      `DeviceId="${escapeHeaderValue(options.deviceId)}"`,
+      `Version="${escapeHeaderValue(options.version)}"`
     ];
     if (options.token) {
-      parts.push(`Token="${options.token}"`);
+      parts.push(`Token="${escapeHeaderValue(options.token)}"`);
     }
     return `MediaBrowser ${parts.join(", ")}`;
+  }
+  function escapeHeaderValue(value) {
+    if (/[\r\n]/.test(value)) {
+      throw new Error("Invalid Jellyfin authentication header.");
+    }
+    return encodeURIComponent(value);
   }
 
   // src/jellyfin/url.ts
   function isHttpsUrl(url) {
-    return url.trim().toLowerCase().startsWith("https://");
+    return parseHttpsUrl(url) !== null;
   }
   function normalizeServerUrl(url) {
     return url.trim().replace(/\/+$/, "");
+  }
+  function resolveDeliveryUrl(serverUrl, deliveryUrl) {
+    const server = parseServerUrl(serverUrl);
+    if (!server || hasUnsafeCharacters(deliveryUrl)) {
+      return "";
+    }
+    const delivery = deliveryUrl.trim();
+    if (!delivery || delivery.startsWith("//")) {
+      return "";
+    }
+    if (/^[a-z][a-z\d+.-]*:/i.test(delivery)) {
+      return serializeDeliveryUrl(parseHttpsUrl(delivery));
+    }
+    const path = `/${delivery.replace(/^\//, "")}`;
+    const prefix = isWithinBasePath(path.split(/[?#]/, 1)[0], server.path) ? "" : server.path;
+    return serializeDeliveryUrl(parseHttpsUrl(`${server.origin}${prefix}${path}`));
+  }
+  function parseServerUrl(url) {
+    const parsed = parseHttpsUrl(normalizeServerUrl(url));
+    if (!parsed || parsed.hasSuffix || hasUnsafeCharacters(url)) {
+      return null;
+    }
+    return { ...parsed, path: parsed.path.replace(/\/+$/, "") };
+  }
+  function parseHttpsUrl(url) {
+    if (hasUnsafeCharacters(url)) {
+      return null;
+    }
+    const match = /^https:\/\/([^/?#]+)([^?#]*)(\?[^#]*)?(#.*)?$/i.exec(url.trim());
+    if (!match) {
+      return null;
+    }
+    const authority = normalizeAuthority(match[1]);
+    const path = match[2] || "/";
+    if (!authority || !hasSafePath(path)) {
+      return null;
+    }
+    return {
+      origin: `https://${authority}`,
+      path,
+      query: (match[3] || "").slice(1),
+      hasSuffix: Boolean(match[3] || match[4])
+    };
+  }
+  function normalizeAuthority(authority) {
+    const match = /^(\[[\da-f:.]+\]|[a-z\d._-]+)(?::(\d+))?$/i.exec(authority);
+    if (!match) {
+      return "";
+    }
+    const port = match[2] === undefined ? 443 : Number(match[2]);
+    if (!Number.isInteger(port) || port > 65535) {
+      return "";
+    }
+    return match[1].toLowerCase() + (port === 443 ? "" : `:${port}`);
+  }
+  function hasUnsafeCharacters(value) {
+    return /[\u0000-\u001f\u007f\\]/.test(value);
+  }
+  function hasSafePath(path) {
+    if (!path.startsWith("/") || /[\u0000-\u0020\u007f\\]/.test(path) || /%(?:2f|5c|3f|23)/i.test(path)) {
+      return false;
+    }
+    try {
+      const decoded = decodeURIComponent(path);
+      return !hasUnsafeCharacters(decoded) && !/(?:^|\/)\.{1,2}(?:[\/;]|$)/.test(decoded) && !/%[\da-f]{2}/i.test(decoded);
+    } catch (_) {
+      return false;
+    }
+  }
+  function isWithinBasePath(path, basePath) {
+    return !basePath || path === basePath || path.startsWith(`${basePath}/`);
+  }
+  function serializeDeliveryUrl(url) {
+    if (!url) {
+      return "";
+    }
+    const query = url.query.split("&").filter(keepQueryParameter).join("&");
+    return `${url.origin}${url.path}${query ? `?${query}` : ""}`;
+  }
+  function keepQueryParameter(parameter) {
+    try {
+      const name = decodeURIComponent(parameter.split("=", 1)[0]).toLowerCase();
+      return !["api_key", "apikey", "access_token", "x-emby-token"].includes(name);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // src/jellyfin/redact.ts
+  function redactCredentials(text, secrets = []) {
+    let result = text;
+    for (const secret of secrets) {
+      if (secret) {
+        result = result.split(secret).join("[redacted]");
+        result = result.split(encodeURIComponent(secret)).join("[redacted]");
+      }
+    }
+    return result.replace(/([?&](?:api_?key|access_token|x-emby-token)=)[^&#\s"'<>]*/gi, "$1[redacted]").replace(/((?:Token|AccessToken|Pw|Password|X-Emby-Token|X-MediaBrowser-Token)"?\s*[:=]\s*")[^"]*"/gi, '$1[redacted]"').replace(/(\bBearer\s+)[^\s,"'<>]+/gi, "$1[redacted]");
   }
 
   // src/jellyfin/client.ts
@@ -258,7 +364,7 @@
     endpoint;
     snippet;
     constructor(endpoint, snippet) {
-      super(`Expected JSON response for ${endpoint} but got: ${snippet}`.trim());
+      super(`Jellyfin returned invalid JSON for ${endpoint}.`);
       this.endpoint = endpoint;
       this.snippet = snippet;
       this.name = "JellyfinJsonError";
@@ -274,25 +380,35 @@
     }
     async requestJson(connection, options) {
       const response = await this.send(connection, options);
+      const secrets = getRequestSecrets(connection, options);
       if (response.data !== undefined && response.data !== null) {
         if (typeof response.data !== "string") {
           return response.data;
         }
-        return this.parseJson(options.endpoint, response.data);
+        return this.parseJson(options.endpoint, response.data, secrets);
       }
       const responseText = response.text ? String(response.text).trim() : "";
       if (!responseText) {
         return null;
       }
-      return this.parseJson(options.endpoint, responseText);
+      return this.parseJson(options.endpoint, responseText, secrets);
     }
     async send(connection, options) {
       const request = this.buildRequest(connection, options);
-      const response = await this.transport.send(request);
+      const secrets = getRequestSecrets(connection, options);
+      const response = await this.sendSafely(request, secrets);
       if (response.status < 200 || response.status >= 300) {
-        throw new JellyfinHttpError(response.status, options.endpoint, response.statusText, response.text ? String(response.text) : "");
+        throw new JellyfinHttpError(response.status, redactCredentials(options.endpoint, secrets), redactCredentials(response.statusText, secrets), redactCredentials(response.text ? String(response.text) : "", secrets));
       }
       return response;
+    }
+    async sendSafely(request, secrets) {
+      try {
+        return await this.transport.send(request);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(redactCredentials(message, secrets));
+      }
     }
     buildRequest(connection, options) {
       const serverUrl = normalizeServerUrl(connection.serverUrl);
@@ -321,13 +437,18 @@
         ...options.body !== undefined ? { body: options.body } : {}
       };
     }
-    parseJson(endpoint, responseText) {
+    parseJson(endpoint, responseText, secrets) {
       try {
         return JSON.parse(responseText);
       } catch (error) {
-        throw new JellyfinJsonError(endpoint, responseText.slice(0, 200));
+        throw new JellyfinJsonError(redactCredentials(endpoint, secrets), redactCredentials(responseText, secrets).slice(0, 200));
       }
     }
+  }
+  function getRequestSecrets(connection, options) {
+    const body = options.body;
+    const password = typeof body === "object" && body !== null && "Pw" in body ? body.Pw : undefined;
+    return typeof password === "string" ? [connection.accessToken, password] : [connection.accessToken];
   }
   function buildQueryString(query) {
     if (!query) {
@@ -378,11 +499,10 @@
     const params = {
       Static: "true",
       mediaSourceId,
-      playSessionId: options.playSessionId || "",
-      api_key: options.accessToken
+      playSessionId: options.playSessionId || ""
     };
     const queryString = buildQueryString2(params);
-    return `${baseUrl}/Videos/${encodeURIComponent(options.itemId)}/stream?${queryString}`;
+    return resolveDeliveryUrl(baseUrl, `/Videos/${encodeURIComponent(options.itemId)}/stream?${queryString}`);
   }
   function buildPlaybackInfoRequest(userId, deviceProfile, selection = {}) {
     return {
@@ -392,8 +512,8 @@
       SubtitleStreamIndex: selection.subtitleStreamIndex === null ? -1 : selection.subtitleStreamIndex,
       DeviceProfile: deviceProfile,
       EnableDirectPlay: true,
-      EnableDirectStream: true,
-      EnableTranscoding: true,
+      EnableDirectStream: false,
+      EnableTranscoding: false,
       AllowVideoStreamCopy: true,
       AllowAudioStreamCopy: true
     };
@@ -404,14 +524,14 @@
     if (mediaSource && isPlayableMediaSource(mediaSource)) {
       return mediaSource;
     }
-    if (mediaSourceId) {
+    if (mediaSourceId && !mediaSource) {
       throw new Error("Jellyfin did not provide the selected media source.");
     }
     const errorCode = playbackInfo.ErrorCode ? ` (${playbackInfo.ErrorCode})` : "";
-    throw new Error(`Jellyfin did not provide a playable media source${errorCode}.`);
+    throw new Error(`Jellyfin cannot direct play this item${errorCode}. ` + "Check the user's playback permissions and the server's bitrate limit, or choose another version. " + "Transcoding will be supported in 3.1.0.");
   }
   function isPlayableMediaSource(source) {
-    return Boolean(source.Id) && (source.SupportsDirectPlay === true || Boolean(source.TranscodingUrl));
+    return Boolean(source.Id) && source.SupportsDirectPlay === true;
   }
   function buildPlaybackHandoff(playbackInfo, options) {
     const playSessionId = playbackInfo.PlaySessionId || "";
@@ -420,13 +540,12 @@
     }
     const mediaSource = selectPlayableMediaSource(playbackInfo, options.mediaSourceId);
     const mediaSourceId = mediaSource.Id || "";
-    const directPlay = mediaSource.SupportsDirectPlay === true;
-    const url = directPlay ? buildJellyfinStreamUrl({ ...options, mediaSourceId, playSessionId }) : buildAuthenticatedDeliveryUrl(options.serverUrl, mediaSource.TranscodingUrl || "", options.accessToken);
+    const url = buildJellyfinStreamUrl({ ...options, mediaSourceId, playSessionId });
     if (!url) {
       throw new Error("Jellyfin returned incomplete playback information.");
     }
     const audioStreamIndex = options.audioStreamIndex === undefined ? mediaSource.DefaultAudioStreamIndex : options.audioStreamIndex;
-    const subtitleStreamIndex = options.subtitleStreamIndex === undefined ? mediaSource.DefaultSubtitleStreamIndex : options.subtitleStreamIndex;
+    const subtitleStreamIndex = normalizeSubtitleStreamIndex(options.subtitleStreamIndex === undefined ? mediaSource.DefaultSubtitleStreamIndex : options.subtitleStreamIndex);
     return {
       url,
       serverUrl: normalizeServerUrl(options.serverUrl),
@@ -437,41 +556,31 @@
       mediaSourceId,
       playSessionId,
       runtimeTicks: mediaSource.RunTimeTicks || options.runtimeTicks || 0,
-      playMethod: directPlay ? "DirectPlay" : resolveTranscodingPlayMethod(mediaSource),
+      playMethod: "DirectPlay",
       audioStreamIndex,
       subtitleStreamIndex,
-      externalSubtitles: buildExternalSubtitleTracks(mediaSource, options.serverUrl, options.accessToken, subtitleStreamIndex),
+      externalSubtitles: buildExternalSubtitleTracks(mediaSource, options.serverUrl, options.itemId, subtitleStreamIndex),
       seriesId: options.seriesId,
       seasonId: options.seasonId,
       episodeIndex: options.episodeIndex
     };
   }
-  function resolveTranscodingPlayMethod(mediaSource) {
-    const transcodingUrl = mediaSource.TranscodingUrl || "";
-    const videoCodec = getQueryParameter(transcodingUrl, "VideoCodec").toLowerCase();
-    if (videoCodec === "copy") {
-      return "DirectStream";
-    }
-    const hasVideo = (mediaSource.MediaStreams || []).some((stream) => stream.Type === "Video");
-    const audioCodec = getQueryParameter(transcodingUrl, "AudioCodec").toLowerCase();
-    if (!hasVideo && audioCodec === "copy") {
-      return "DirectStream";
-    }
-    return "Transcode";
+  function normalizeSubtitleStreamIndex(index) {
+    return index === -1 ? null : index;
   }
-  function buildExternalSubtitleTracks(mediaSource, serverUrl, accessToken, selectedStreamIndex = mediaSource.DefaultSubtitleStreamIndex) {
-    return (mediaSource.MediaStreams || []).filter(isExternalSubtitleStream).map((stream) => buildExternalSubtitleTrack(stream, selectedStreamIndex, serverUrl, accessToken)).filter((track) => track !== null);
+  function buildExternalSubtitleTracks(mediaSource, serverUrl, itemId, selectedStreamIndex = mediaSource.DefaultSubtitleStreamIndex) {
+    return (mediaSource.MediaStreams || []).filter(isExternalSubtitleStream).map((stream) => buildExternalSubtitleTrack(stream, selectedStreamIndex, serverUrl, itemId, mediaSource.Id || "")).filter((track) => track !== null);
   }
   function isExternalSubtitleStream(stream) {
-    return stream.Type === "Subtitle" && stream.DeliveryMethod === "External" && typeof stream.Index === "number" && Boolean(stream.DeliveryUrl);
+    return stream.Type === "Subtitle" && (stream.IsExternal === true || stream.DeliveryMethod === "External") && typeof stream.Index === "number" && stream.Index >= 0;
   }
-  function buildExternalSubtitleTrack(stream, defaultSubtitleStreamIndex, serverUrl, accessToken) {
+  function buildExternalSubtitleTrack(stream, defaultSubtitleStreamIndex, serverUrl, itemId, mediaSourceId) {
     const index = stream.Index;
-    const deliveryUrl = stream.DeliveryUrl || "";
+    const deliveryUrl = stream.DeliveryUrl || buildSubtitleDeliveryPath(stream, itemId, mediaSourceId);
     if (index === undefined || !deliveryUrl) {
       return null;
     }
-    const url = buildAuthenticatedDeliveryUrl(serverUrl, deliveryUrl, accessToken);
+    const url = resolveDeliveryUrl(serverUrl, deliveryUrl);
     if (!url) {
       return null;
     }
@@ -485,61 +594,39 @@
       isHearingImpaired: Boolean(stream.IsHearingImpaired)
     };
   }
-  function buildAuthenticatedDeliveryUrl(serverUrl, deliveryUrl, accessToken) {
-    const baseUrl = normalizeServerUrl(serverUrl);
-    const trimmedDeliveryUrl = deliveryUrl.trim();
-    if (!baseUrl || !trimmedDeliveryUrl) {
+  function buildSubtitleDeliveryPath(stream, itemId, mediaSourceId) {
+    if (!itemId || !mediaSourceId) {
       return "";
     }
-    const isAbsolute = /^https?:\/\//i.test(trimmedDeliveryUrl);
-    const resolvedUrl = isAbsolute ? trimmedDeliveryUrl : `${baseUrl}/${trimmedDeliveryUrl.replace(/^\/+/, "")}`;
-    if (!/^https:\/\//i.test(resolvedUrl)) {
+    const format = getSubtitleFormat(stream);
+    if (!format) {
       return "";
     }
-    const serverOrigin = getHttpOrigin(baseUrl);
-    const deliveryOrigin = getHttpOrigin(resolvedUrl);
-    if (!accessToken || !serverOrigin || serverOrigin !== deliveryOrigin || hasAccessToken(resolvedUrl)) {
-      return resolvedUrl;
+    return `/Videos/${encodeURIComponent(itemId)}/${encodeURIComponent(mediaSourceId)}` + `/Subtitles/${stream.Index}/Stream.${format}`;
+  }
+  function getSubtitleFormat(stream) {
+    if (/\.mks$/i.test(stream.Path || "")) {
+      return "mks";
     }
-    return appendQueryParameter(resolvedUrl, "api_key", accessToken);
-  }
-  function getHttpOrigin(url) {
-    const match = url.match(/^https?:\/\/[^/?#]+/i);
-    return match ? match[0].toLowerCase() : "";
-  }
-  function hasAccessToken(url) {
-    return /[?&](?:api_key|access_token|x-emby-token)=/i.test(url);
-  }
-  function getQueryParameter(url, requestedKey) {
-    const queryStart = url.indexOf("?");
-    if (queryStart === -1) {
+    const codec = (stream.Codec || "").toLowerCase();
+    const formats = {
+      ass: "ass",
+      ssa: "ssa",
+      srt: "srt",
+      subrip: "srt",
+      vtt: "vtt",
+      webvtt: "vtt",
+      pgssub: "pgssub",
+      hdmv_pgs_subtitle: "pgssub",
+      sup: "pgssub"
+    };
+    if (formats[codec]) {
+      return formats[codec];
+    }
+    if (stream.IsTextSubtitleStream === false) {
       return "";
     }
-    const queryEnd = url.indexOf("#", queryStart);
-    const query = url.substring(queryStart + 1, queryEnd === -1 ? url.length : queryEnd);
-    for (const pair of query.split("&")) {
-      const separator = pair.indexOf("=");
-      const rawKey = separator === -1 ? pair : pair.substring(0, separator);
-      if (decodeQueryValue(rawKey).toLowerCase() !== requestedKey.toLowerCase()) {
-        continue;
-      }
-      return decodeQueryValue(separator === -1 ? "" : pair.substring(separator + 1));
-    }
-    return "";
-  }
-  function decodeQueryValue(value) {
-    try {
-      return decodeURIComponent(value.replace(/\+/g, " "));
-    } catch (error) {
-      return value;
-    }
-  }
-  function appendQueryParameter(url, key, value) {
-    const fragmentIndex = url.indexOf("#");
-    const fragment = fragmentIndex === -1 ? "" : url.substring(fragmentIndex);
-    const urlWithoutFragment = fragmentIndex === -1 ? url : url.substring(0, fragmentIndex);
-    const separator = urlWithoutFragment.includes("?") ? "&" : "?";
-    return `${urlWithoutFragment}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}${fragment}`;
+    return "srt";
   }
   function buildJellyfinWindowTitle(item, fallbackName) {
     if (!item) {
@@ -608,9 +695,7 @@
     },
     permissions: [
       "network-request",
-      "show-osd",
       "show-alert",
-      "sidebar",
       "file-system",
       "video-overlay"
     ],
@@ -690,39 +775,78 @@
     return `/Items/${encodeURIComponent(itemId)}?userId=${encodeURIComponent(userId)}` + `&fields=${fields}`;
   }
 
-  // src/adapters/browser/storage.ts
-  var DEVICE_ID_KEY = "jellyfin-device-id";
-  var SESSION_KEY = "jellyfin-session";
-  function isRecord(value) {
-    return typeof value === "object" && value !== null;
+  // src/jellyfin/credentials.ts
+  function matchesSession(left, right) {
+    return normalizeServerUrl(left.serverUrl) === normalizeServerUrl(right.serverUrl) && left.accessToken === right.accessToken && left.userId === right.userId;
   }
   function parseStoredSession(value) {
-    if (!isRecord(value)) {
+    if (typeof value !== "object" || value === null) {
       return null;
     }
-    if (typeof value.serverUrl !== "string" || !value.serverUrl) {
+    const record = value;
+    const required = ["serverUrl", "accessToken", "userId"];
+    if (!required.every((key) => typeof record[key] === "string" && record[key])) {
       return null;
     }
-    if (typeof value.serverName !== "string") {
-      return null;
-    }
-    if (typeof value.accessToken !== "string" || !value.accessToken) {
-      return null;
-    }
-    if (typeof value.userId !== "string" || !value.userId) {
-      return null;
-    }
-    if (typeof value.username !== "string") {
+    if (typeof record.serverName !== "string" || typeof record.username !== "string") {
       return null;
     }
     return {
-      serverUrl: value.serverUrl,
-      serverName: value.serverName,
-      accessToken: value.accessToken,
-      userId: value.userId,
-      username: value.username
+      serverUrl: record.serverUrl,
+      serverName: record.serverName,
+      accessToken: record.accessToken,
+      userId: record.userId,
+      username: record.username
     };
   }
+
+  // src/adapters/browser/credentials.ts
+  function createSessionCredentials(bridge, timeoutMs = 60000) {
+    let nextRequestId = 0;
+    const requestPrefix = `${Date.now()}-${Math.random()}-`;
+    const pending = new Map;
+    bridge.onMessage(MESSAGE_NAMES.CredentialResponse, (response) => {
+      pending.get(response.requestId)?.(response);
+    });
+    function request(payload) {
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          pending.delete(payload.requestId);
+          reject(new Error("IINA did not respond to the Keychain request. Try signing in again."));
+        }, timeoutMs);
+        pending.set(payload.requestId, (response) => {
+          clearTimeout(timeout);
+          pending.delete(payload.requestId);
+          if (response.ok) {
+            resolve(response.session);
+          } else {
+            reject(new Error(response.error));
+          }
+        });
+        try {
+          bridge.postMessage(MESSAGE_NAMES.CredentialRequest, payload);
+        } catch {
+          clearTimeout(timeout);
+          pending.delete(payload.requestId);
+          reject(new Error("Could not access IINA's Keychain. Try signing in again."));
+        }
+      });
+    }
+    const requestId = () => `${requestPrefix}${++nextRequestId}`;
+    return {
+      load: () => request({ requestId: requestId(), operation: "load" }),
+      async save(session) {
+        await request({ requestId: requestId(), operation: "save", session });
+      },
+      async clear(session) {
+        await request({ requestId: requestId(), operation: "clear", session });
+      }
+    };
+  }
+
+  // src/adapters/browser/storage.ts
+  var DEVICE_ID_KEY = "jellyfin-device-id";
+  var SESSION_KEY = "jellyfin-session";
   var cachedDeviceId = "";
   function getDeviceId() {
     if (cachedDeviceId) {
@@ -740,32 +864,69 @@
     cachedDeviceId = deviceId;
     return deviceId;
   }
+  function createSessionStorage(storage, credentials) {
+    let pending = Promise.resolve();
+    const serialized = (operation) => {
+      const result = pending.then(operation, operation);
+      pending = result;
+      return result;
+    };
+    return {
+      load: () => serialized(async () => {
+        const savedSession = await credentials.load();
+        if (savedSession) {
+          storage.removeItem(SESSION_KEY);
+          return savedSession;
+        }
+        const legacy = storage.getItem(SESSION_KEY);
+        if (!legacy) {
+          return null;
+        }
+        const session = readLegacySession(legacy);
+        await credentials.save(session);
+        storage.removeItem(SESSION_KEY);
+        return session;
+      }),
+      save: (session) => serialized(async () => {
+        await credentials.save(session);
+        storage.removeItem(SESSION_KEY);
+      }),
+      clear: (session) => serialized(async () => {
+        await credentials.clear(session);
+        const legacy = storage.getItem(SESSION_KEY);
+        if (legacy && matchesSession(readLegacySession(legacy), session)) {
+          storage.removeItem(SESSION_KEY);
+        }
+      })
+    };
+  }
+  function readLegacySession(serialized) {
+    try {
+      const session = parseStoredSession(JSON.parse(serialized));
+      if (session) {
+        return session;
+      }
+    } catch {}
+    throw new Error("Your saved Jellyfin session could not be read. Sign in again.");
+  }
+  var sessionStorage;
+  function getSessionStorage() {
+    sessionStorage ??= createSessionStorage(localStorage, createSessionCredentials(iina));
+    return sessionStorage;
+  }
   function saveSessionToStorage(session) {
-    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    return getSessionStorage().save(session);
   }
   function loadSessionFromStorage() {
-    try {
-      const stored = localStorage.getItem(SESSION_KEY);
-      if (!stored) {
-        return null;
-      }
-      const sessionData = parseStoredSession(JSON.parse(stored));
-      if (sessionData) {
-        return sessionData;
-      }
-      clearSessionFromStorage();
-    } catch (error) {
-      clearSessionFromStorage();
-      console.error("Failed to load session from localStorage:", error);
-    }
-    return null;
+    return getSessionStorage().load();
   }
-  function clearSessionFromStorage() {
-    localStorage.removeItem(SESSION_KEY);
+  function clearSessionFromStorage(session) {
+    return getSessionStorage().clear(session);
   }
 
   // src/adapters/browser/sidebarApi.ts
   var authenticationFailureHandler = null;
+  var authenticationGeneration = 0;
   var client = new JellyfinClient(createFetchTransport(), {
     clientName: CLIENT_NAME,
     deviceName: DEVICE_NAME,
@@ -773,6 +934,9 @@
   });
   function setAuthenticationFailureHandler(handler) {
     authenticationFailureHandler = handler;
+  }
+  function invalidateAuthenticationRequests() {
+    authenticationGeneration += 1;
   }
   async function authenticateUser(serverUrl, username, password) {
     const endpoint = "/Users/AuthenticateByName";
@@ -805,15 +969,23 @@
     if (data !== undefined && (method === "POST" || method === "PUT" || method === "PATCH")) {
       options.body = data;
     }
+    const connection = {
+      serverUrl: state.serverUrl,
+      accessToken: state.accessToken,
+      deviceId: getDeviceId()
+    };
+    const generation = authenticationGeneration;
+    const userId = state.userId;
+    const isCurrent = () => generation === authenticationGeneration && connection.serverUrl === state.serverUrl && connection.accessToken === state.accessToken && userId === state.userId;
     try {
-      return await client.requestJson({
-        serverUrl: state.serverUrl,
-        accessToken: state.accessToken,
-        deviceId: getDeviceId()
-      }, options);
+      const result = await client.requestJson(connection, options);
+      if (!isCurrent()) {
+        throw new Error("The Jellyfin session changed during this request.");
+      }
+      return result;
     } catch (error) {
       const mappedError = mapClientError(error, endpoint);
-      if (mappedError instanceof JellyfinApiError && mappedError.status === 401 && state.accessToken && authenticationFailureHandler) {
+      if (mappedError instanceof JellyfinApiError && mappedError.status === 401 && connection.accessToken && isCurrent() && authenticationFailureHandler) {
         authenticationFailureHandler();
       }
       throw mappedError;
@@ -824,21 +996,9 @@
       return new JellyfinApiError(error.status, endpoint);
     }
     if (error instanceof JellyfinJsonError) {
-      return new Error(`Expected JSON response for ${endpoint} but got: ${error.snippet}`.trim());
+      return new Error(error.message);
     }
     return error;
-  }
-  async function fetchServerName() {
-    try {
-      const systemInfo = await apiRequest("GET", "/System/Info/Public");
-      return systemInfo?.ServerName || "";
-    } catch (error) {
-      if (isConfirmedAuthenticationFailure(error)) {
-        throw error;
-      }
-      console.error("Failed to fetch server name:", error);
-      return "";
-    }
   }
   async function fetchItemDetails(itemId) {
     const endpoint = buildItemDetailsEndpoint(state.userId, itemId, ITEM_DETAILS_FIELDS);
@@ -1205,7 +1365,10 @@
     return defaultIndex ?? streams.find((stream) => stream.IsDefault)?.Index ?? streams.find((stream) => stream.Index !== undefined)?.Index ?? null;
   }
   function getInitialSubtitleStreamIndex(streams, defaultIndex) {
-    return defaultIndex ?? streams.find((stream) => stream.IsDefault)?.Index ?? null;
+    if (defaultIndex !== undefined) {
+      return defaultIndex === null || defaultIndex < 0 ? null : defaultIndex;
+    }
+    return streams.find((stream) => stream.IsDefault)?.Index ?? null;
   }
   function compareMediaSources(left, right) {
     const resolutionDifference = getMediaSourceResolution(left) - getMediaSourceResolution(right);
@@ -1429,9 +1592,6 @@
     ];
     if (options.imageTag) {
       query.push(`tag=${encodeURIComponent(options.imageTag)}`);
-    }
-    if (options.accessToken) {
-      query.push(`api_key=${encodeURIComponent(options.accessToken)}`);
     }
     return `${endpoint}?${query.join("&")}`;
   }
@@ -1946,7 +2106,12 @@
     if (!currentSection) {
       return false;
     }
-    currentSection.replaceWith(buildSeriesSeasonsSection(seasons, expandedSeasonId, episodes, episodeLoadState));
+    const focusedSeasonId = currentSection.contains(document.activeElement) ? document.activeElement?.closest(".series-season")?.dataset.seasonId : undefined;
+    const nextSection = buildSeriesSeasonsSection(seasons, expandedSeasonId, episodes, episodeLoadState);
+    currentSection.replaceWith(nextSection);
+    if (focusedSeasonId !== undefined) {
+      [...nextSection.querySelectorAll("[data-season-toggle]")].find((button) => button.dataset.seasonToggle === focusedSeasonId)?.focus({ preventScroll: true });
+    }
     return true;
   }
   function buildMediaDetails(item, viewModel, playbackItem, playbackLabel = "", artworkClickable = true) {
@@ -2034,16 +2199,16 @@
     const list = document.createElement("dl");
     list.className = "media-file-metadata";
     section.appendChild(list);
-    const selectedSource = sources.find((source2) => source2.groups.some((group) => group.kind === "video" && group.tracks.some((track) => track.selected))) || sources[0];
+    const selectedSource = sources.find((source) => source.groups.some((group) => group.kind === "video" && group.tracks.some((track) => track.selected))) || sources[0];
     renderMediaFileSource(section, list, sources, selectedSource, false);
     return section;
   }
   function renderMediaFileSource(section, list, sources, selectedSource, restoreFocus) {
     section.dataset.mediaSourceId = selectedSource.mediaSourceId;
     const selectSource = (mediaSourceId) => {
-      const source2 = sources.find((candidate) => candidate.mediaSourceId === mediaSourceId);
-      if (source2) {
-        renderMediaFileSource(section, list, sources, source2, true);
+      const source = sources.find((candidate) => candidate.mediaSourceId === mediaSourceId);
+      if (source) {
+        renderMediaFileSource(section, list, sources, source, true);
       }
     };
     list.replaceChildren(...getMediaFileGroups2(sources, selectedSource).map((group) => buildMediaFileGroup2(group, selectSource)));
@@ -2052,9 +2217,9 @@
     }
   }
   function getMediaFileGroups2(sources, selectedSource) {
-    const videoTracks = sources.flatMap((source2) => source2.groups.find((group) => group.kind === "video")?.tracks.map((track) => ({
+    const videoTracks = sources.flatMap((source) => source.groups.find((group) => group.kind === "video")?.tracks.map((track) => ({
       ...track,
-      selected: source2 === selectedSource
+      selected: source === selectedSource
     })) || []);
     return [
       { kind: "video", label: "Video", tracks: videoTracks },
@@ -2146,9 +2311,9 @@
   }
   function buildMediaDetailArtworkContainer(item, playbackItem, playbackLabel, clickable) {
     if (!playbackItem || !clickable) {
-      const artwork2 = document.createElement("div");
-      artwork2.className = "media-detail-artwork";
-      return artwork2;
+      const artwork = document.createElement("div");
+      artwork.className = "media-detail-artwork";
+      return artwork;
     }
     const artwork = document.createElement("button");
     artwork.className = "media-detail-artwork";
@@ -2505,7 +2670,10 @@
     return "Newly added titles will appear here.";
   }
   // src/sidebar/views/search.ts
-  var cachedSearchResults = [];
+  var cachedSearchResults = null;
+  function clearSearchResults() {
+    cachedSearchResults = null;
+  }
   function renderSearchResults(items) {
     cachedSearchResults = [...items];
     renderFilteredSearchResults();
@@ -2518,8 +2686,12 @@
     renderFilteredSearchResults();
   }
   function renderFilteredSearchResults() {
+    if (!cachedSearchResults) {
+      return;
+    }
     const viewModel = buildSearchResultsViewModel(cachedSearchResults, state.searchFilter);
     if (viewModel.visibleItems.length === 0) {
+      setBackdropSlideshow([]);
       renderEmptyState(viewModel.emptyMessage);
       return;
     }
@@ -2559,33 +2731,65 @@
     return heading;
   }
   // src/sidebar/playbackService.ts
-  function createPlayItem(dependencies) {
-    return async function playItem(itemId, name, resumePositionTicks = 0, context = {}, preferredTitle = "") {
-      try {
-        const playbackInfo = await dependencies.fetchPlaybackInfo(itemId, context);
-        if (!playbackInfo) {
-          throw new Error("Missing playback info");
+  function createPlayItem(dependencies, mode = "latest") {
+    let generation = 0;
+    let queued = Promise.resolve();
+    function playItem(itemId, name, resumePositionTicks = 0, context = {}, preferredTitle = "") {
+      const requestGeneration = mode === "latest" ? ++generation : generation;
+      const connection = { ...dependencies.getConnection() };
+      const deviceId = dependencies.getDeviceId();
+      const selection = { ...context };
+      const isCurrent = () => requestGeneration === generation && isSameConnection(connection, dependencies.getConnection());
+      async function run() {
+        if (!isCurrent()) {
+          return;
         }
-        const itemDetails = await dependencies.fetchItemDetails(itemId);
-        const connection = dependencies.getConnection();
-        const resolvedContext = resolvePlaybackContext(context, itemDetails);
-        const playback = buildPlaybackHandoff(playbackInfo, {
-          ...connection,
-          deviceId: dependencies.getDeviceId(),
-          itemId,
-          runtimeTicks: itemDetails?.RunTimeTicks,
-          ...resolvedContext
-        });
-        const title = preferredTitle || buildJellyfinWindowTitle(itemDetails, name) || name;
-        dependencies.send({
-          playback,
-          resumeSeconds: toResumeSeconds(resumePositionTicks),
-          title
-        });
-      } catch (error) {
-        dependencies.reportError(error);
+        try {
+          const playbackInfo = await dependencies.fetchPlaybackInfo(itemId, selection);
+          if (!isCurrent()) {
+            return;
+          }
+          if (!playbackInfo) {
+            throw new Error("Missing playback info");
+          }
+          const itemDetails = await dependencies.fetchItemDetails(itemId);
+          if (!isCurrent()) {
+            return;
+          }
+          const playback = buildPlaybackHandoff(playbackInfo, {
+            ...connection,
+            deviceId,
+            itemId,
+            runtimeTicks: itemDetails?.RunTimeTicks,
+            ...resolvePlaybackContext(selection, itemDetails)
+          });
+          const title = preferredTitle || buildJellyfinWindowTitle(itemDetails, name) || name;
+          dependencies.send({
+            playback,
+            resumeSeconds: toResumeSeconds(resumePositionTicks),
+            title
+          });
+        } catch (error) {
+          if (isCurrent()) {
+            dependencies.reportError(error);
+          }
+        }
       }
-    };
+      if (mode === "ordered") {
+        queued = queued.then(run, run);
+        return queued;
+      }
+      return run();
+    }
+    return Object.assign(playItem, {
+      cancel() {
+        generation += 1;
+        queued = Promise.resolve();
+      }
+    });
+  }
+  function isSameConnection(left, right) {
+    return left.serverUrl === right.serverUrl && left.accessToken === right.accessToken && left.userId === right.userId;
   }
   function resolvePlaybackContext(preferred, item) {
     return {
@@ -2627,7 +2831,11 @@
       console.error("Failed to get queue item playback info:", error);
       showError(error instanceof Error ? error.message : "Unable to queue this item.");
     }
-  });
+  }, "ordered");
+  function cancelPendingPlaybackRequests() {
+    playItem.cancel();
+    queueItem.cancel();
+  }
 
   // src/sidebar/requests/details.ts
   function createDetailsRequests(port) {
@@ -2704,9 +2912,9 @@
       const seriesIds = [];
       const seen = new Set;
       for (let startIndex = 0;startIndex < maximumSeasonRecords; startIndex += pageSize) {
-        const endpoint2 = buildNewestSeasonsEndpoint(userId, startIndex, pageSize);
-        const data2 = await port.requestJson("GET", endpoint2);
-        const seasons = data2?.Items || [];
+        const endpoint = buildNewestSeasonsEndpoint(userId, startIndex, pageSize);
+        const data = await port.requestJson("GET", endpoint);
+        const seasons = data?.Items || [];
         for (const season of seasons) {
           const seriesId = season.SeriesId || season.ParentId;
           if (seriesId && !seen.has(seriesId)) {
@@ -2892,6 +3100,7 @@
     libraryViewCache.clear();
     playableDetailsCache.clear();
     seriesDetailsCache.clear();
+    clearSearchResults();
     currentSeriesView = null;
     cancelPendingViewRequest();
   }
@@ -3295,6 +3504,7 @@
   }
   async function performSearch(query) {
     const requestId = beginViewRequest();
+    clearSearchResults();
     sidebarStore.setRetryOperation({ kind: "search", query });
     updateTitle("Search Results");
     showLoading("search");
@@ -3305,10 +3515,6 @@
         return;
       }
       hideLoading();
-      if (items.length === 0) {
-        renderEmptyState("No results found");
-        return;
-      }
       renderSearchResults(items);
     } catch (error) {
       if (!viewRequests.isCurrent(requestId) || state.searchQuery !== query) {
@@ -3476,7 +3682,54 @@
     }
   }
 
+  // src/adapters/browser/sessionApi.ts
+  var client2 = new JellyfinClient(createFetchTransport(), {
+    clientName: CLIENT_NAME,
+    deviceName: DEVICE_NAME,
+    version: CLIENT_VERSION
+  });
+
+  class InvalidSessionIdentityError extends Error {
+    constructor() {
+      super("Jellyfin could not confirm the account for your saved session. Sign in again.");
+      this.name = "InvalidSessionIdentityError";
+    }
+  }
+  async function validateStoredSession(session) {
+    const endpoint = "/Users/Me";
+    try {
+      const user = await client2.requestJson({
+        ...session,
+        deviceId: getDeviceId()
+      }, { method: "GET", endpoint });
+      if (!user?.Id || user.Id !== session.userId) {
+        throw new InvalidSessionIdentityError;
+      }
+      return { ...session, username: user.Name || session.username };
+    } catch (error) {
+      if (error instanceof JellyfinHttpError) {
+        throw new JellyfinApiError(error.status, endpoint);
+      }
+      if (error instanceof JellyfinJsonError) {
+        throw new InvalidSessionIdentityError;
+      }
+      throw error;
+    }
+  }
+  async function fetchSessionServerName(session) {
+    try {
+      const info = await client2.requestJson({
+        ...session,
+        deviceId: getDeviceId()
+      }, { method: "GET", endpoint: "/System/Info/Public" });
+      return info?.ServerName || "";
+    } catch {
+      return "";
+    }
+  }
+
   // src/sidebar/controllers/session.ts
+  var sessionOperation = 0;
   function normalizeAndValidateUrl(rawUrl) {
     const normalizedUrl = normalizeServerUrl(rawUrl);
     if (!normalizedUrl) {
@@ -3484,80 +3737,121 @@
       return null;
     }
     if (!isHttpsUrl(normalizedUrl)) {
-      ui.loginError.textContent = "Jellyfin requires an https:// server URL.";
+      ui.loginError.textContent = "This plugin requires an https:// server URL.";
       return null;
     }
     return normalizedUrl;
   }
-  function restoreSessionFromStorage() {
-    const savedSession = loadSessionFromStorage();
-    if (!savedSession) {
-      sendAuthCleared();
-      showLoginView();
-      return false;
-    }
-    const normalizedUrl = normalizeServerUrl(savedSession.serverUrl);
-    if (!normalizedUrl || !isHttpsUrl(normalizedUrl)) {
-      clearSessionFromStorage();
-      sendAuthCleared();
-      showLoginView();
-      return false;
-    }
-    sidebarStore.patch({
-      serverUrl: normalizedUrl,
-      accessToken: savedSession.accessToken,
-      userId: savedSession.userId,
-      username: savedSession.username,
-      serverName: savedSession.serverName || getServerHost(normalizedUrl)
-    });
+  function startSessionOperation() {
+    invalidateAuthenticationRequests();
+    cancelPendingPlaybackRequests();
+    return ++sessionOperation;
+  }
+  function activateSession(session) {
+    sidebarStore.patch(session);
+    ui.passwordInput.value = "";
     showBrowseView();
     resetSearchState(false);
     sendAuthUpdated();
-    return true;
+  }
+  async function restoreSessionFromStorage() {
+    const operation = startSessionOperation();
+    let savedSession = null;
+    try {
+      savedSession = await loadSessionFromStorage();
+      if (operation !== sessionOperation)
+        return false;
+      if (!savedSession) {
+        sendAuthCleared();
+        showLoginView();
+        return false;
+      }
+      ui.serverUrlInput.value = savedSession.serverUrl;
+      ui.usernameInput.value = savedSession.username;
+      const normalizedUrl = normalizeAndValidateUrl(savedSession.serverUrl);
+      if (!normalizedUrl) {
+        sendAuthCleared();
+        showLoginView();
+        return false;
+      }
+      savedSession = {
+        ...savedSession,
+        serverUrl: normalizedUrl,
+        serverName: savedSession.serverName || getServerHost(normalizedUrl)
+      };
+      const session = await validateStoredSession(savedSession);
+      if (operation !== sessionOperation)
+        return false;
+      activateSession(session);
+      return true;
+    } catch (error) {
+      if (operation === sessionOperation) {
+        return handleRestoreFailure(error, savedSession);
+      }
+      return false;
+    }
+  }
+  function handleRestoreFailure(error, session) {
+    if (isConfirmedAuthenticationFailure(error) && session) {
+      clearActiveSession(session);
+      ui.loginError.textContent = "Your Jellyfin session expired. Sign in again.";
+    } else if (error instanceof InvalidSessionIdentityError) {
+      deactivateSession();
+      ui.loginError.textContent = error.message;
+    } else if (session) {
+      activateSession(session);
+      return true;
+    } else {
+      sendAuthCleared();
+      ui.loginError.textContent = "Could not access your saved Jellyfin session. Check Keychain access and sign in again. Your saved credentials were kept.";
+    }
+    showLoginView();
+    return false;
+  }
+  function setConnecting(connecting) {
+    ui.connectBtn.disabled = connecting;
+    ui.connectBtn.textContent = connecting ? "Connecting..." : "Connect";
+  }
+  async function authenticateSession(serverUrl, username, password) {
+    const authData = await authenticateUser(serverUrl, username, password);
+    if (!authData.AccessToken || !authData.User?.Id) {
+      throw new Error("Jellyfin returned an incomplete sign-in response. Try again.");
+    }
+    return {
+      serverUrl,
+      serverName: getServerHost(serverUrl),
+      accessToken: authData.AccessToken,
+      userId: authData.User.Id,
+      username: authData.User.Name || username
+    };
   }
   async function handleLogin(event) {
     event.preventDefault();
-    const serverUrlInput = ui.serverUrlInput.value.trim();
-    const username = ui.usernameInput.value.trim();
-    const password = ui.passwordInput.value;
-    ui.connectBtn.disabled = true;
-    ui.connectBtn.textContent = "Connecting...";
-    ui.loginError.textContent = "";
-    const normalizedUrl = normalizeAndValidateUrl(serverUrlInput);
-    if (!normalizedUrl) {
-      ui.connectBtn.disabled = false;
-      ui.connectBtn.textContent = "Connect";
+    const normalizedUrl = normalizeAndValidateUrl(ui.serverUrlInput.value.trim());
+    if (!normalizedUrl)
       return;
-    }
+    const operation = startSessionOperation();
+    setConnecting(true);
+    ui.loginError.textContent = "";
     try {
-      const authData = await authenticateUser(normalizedUrl, username, password);
-      sidebarStore.patch({
-        serverUrl: normalizedUrl,
-        accessToken: authData.AccessToken || "",
-        userId: authData.User?.Id || "",
-        username: authData.User?.Name || ""
-      });
-      const serverDisplayName = await fetchServerName();
-      const serverHostValue = getServerHost(state.serverUrl);
-      sidebarStore.patch({ serverName: serverDisplayName || serverHostValue });
-      saveSessionToStorage({
-        serverUrl: state.serverUrl,
-        serverName: state.serverName,
-        accessToken: state.accessToken,
-        userId: state.userId,
-        username: state.username
-      });
-      ui.connectBtn.disabled = false;
-      ui.connectBtn.textContent = "Connect";
-      showBrowseView();
-      resetSearchState(false);
-      sendAuthUpdated();
+      const session = await authenticateSession(normalizedUrl, ui.usernameInput.value.trim(), ui.passwordInput.value);
+      if (operation !== sessionOperation)
+        return;
+      session.serverName = await fetchSessionServerName(session) || session.serverName;
+      if (operation !== sessionOperation)
+        return;
+      await saveSessionToStorage(session);
+      if (operation !== sessionOperation)
+        return;
+      activateSession(session);
       goHomeFresh("login");
     } catch (error) {
-      ui.connectBtn.disabled = false;
-      ui.connectBtn.textContent = "Connect";
-      const message = error instanceof Error ? error.message : "Connection failed";
-      ui.loginError.textContent = message || "Connection failed";
+      if (operation === sessionOperation) {
+        ui.loginError.textContent = error instanceof Error ? error.message : "Connection failed";
+      }
+    } finally {
+      if (operation === sessionOperation)
+        setConnecting(false);
     }
   }
   function handleAuthenticationFailure() {
@@ -3570,7 +3864,22 @@
     ui.loginError.textContent = "Your Jellyfin session expired. Sign in again.";
     showLoginView();
   }
-  function clearActiveSession() {
+  function clearActiveSession(session = {
+    serverUrl: state.serverUrl,
+    serverName: state.serverName,
+    accessToken: state.accessToken,
+    userId: state.userId,
+    username: state.username
+  }) {
+    const operation = deactivateSession();
+    clearSessionFromStorage(session).catch(() => {
+      if (operation === sessionOperation) {
+        ui.loginError.textContent = "Your session expired, but IINA could not clear its saved credentials. Check Keychain access and sign in again.";
+      }
+    });
+  }
+  function deactivateSession() {
+    const operation = startSessionOperation();
     clearBackdropContext();
     clearSidebarRequestCaches();
     sidebarStore.navigateHome();
@@ -3584,13 +3893,13 @@
       currentSeries: null,
       retryOperation: null
     });
-    clearSessionFromStorage();
+    setConnecting(false);
     sendAuthCleared();
+    return operation;
   }
   function sendAuthUpdated() {
-    if (!state.serverUrl || !state.accessToken || !state.userId) {
+    if (!state.serverUrl || !state.accessToken || !state.userId)
       return;
-    }
     iina.postMessage(MESSAGE_NAMES.AuthUpdated, {
       serverUrl: state.serverUrl,
       accessToken: state.accessToken,
@@ -3889,10 +4198,10 @@
       pendingSidebarRefresh = false;
       goHomeFresh("refreshSidebar");
     });
-    document.addEventListener("DOMContentLoaded", () => {
+    document.addEventListener("DOMContentLoaded", async () => {
       setupEventListeners();
       sidebarStore.patch({ deviceId: getDeviceId() });
-      const restored = restoreSessionFromStorage();
+      const restored = await restoreSessionFromStorage();
       if (restored) {
         goHomeFresh("session-restore");
       }

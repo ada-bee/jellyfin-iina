@@ -1,46 +1,10 @@
+import { matchesSession, parseStoredSession, type StoredSession } from "../../jellyfin/credentials";
+import { createSessionCredentials, type SessionCredentials } from "./credentials";
+
 const DEVICE_ID_KEY = "jellyfin-device-id";
 const SESSION_KEY = "jellyfin-session";
 
-export interface StoredSession {
-    serverUrl: string;
-    serverName: string;
-    accessToken: string;
-    userId: string;
-    username: string;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null;
-}
-
-function parseStoredSession(value: unknown): StoredSession | null {
-    if (!isRecord(value)) {
-        return null;
-    }
-
-    if (typeof value.serverUrl !== "string" || !value.serverUrl) {
-        return null;
-    }
-    if (typeof value.serverName !== "string") {
-        return null;
-    }
-    if (typeof value.accessToken !== "string" || !value.accessToken) {
-        return null;
-    }
-    if (typeof value.userId !== "string" || !value.userId) {
-        return null;
-    }
-    if (typeof value.username !== "string") {
-        return null;
-    }
-    return {
-        serverUrl: value.serverUrl,
-        serverName: value.serverName,
-        accessToken: value.accessToken,
-        userId: value.userId,
-        username: value.username
-    };
-}
+export type { StoredSession } from "../../jellyfin/credentials";
 
 let cachedDeviceId = "";
 
@@ -63,28 +27,71 @@ export function getDeviceId(): string {
     return deviceId;
 }
 
-export function saveSessionToStorage(session: StoredSession): void {
-    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+export function createSessionStorage(storage: Pick<Storage, "getItem" | "removeItem">, credentials: SessionCredentials) {
+    let pending: Promise<unknown> = Promise.resolve();
+    const serialized = <T>(operation: () => Promise<T>): Promise<T> => {
+        const result = pending.then(operation, operation);
+        pending = result;
+        return result;
+    };
+
+    return {
+        load: () => serialized(async () => {
+            const savedSession = await credentials.load();
+            if (savedSession) {
+                storage.removeItem(SESSION_KEY);
+                return savedSession;
+            }
+            const legacy = storage.getItem(SESSION_KEY);
+            if (!legacy) {
+                return null;
+            }
+            const session = readLegacySession(legacy);
+            await credentials.save(session);
+            storage.removeItem(SESSION_KEY);
+            return session;
+        }),
+        save: (session: StoredSession) => serialized(async () => {
+            await credentials.save(session);
+            storage.removeItem(SESSION_KEY);
+        }),
+        clear: (session: StoredSession) => serialized(async () => {
+            await credentials.clear(session);
+            const legacy = storage.getItem(SESSION_KEY);
+            if (legacy && matchesSession(readLegacySession(legacy), session)) {
+                storage.removeItem(SESSION_KEY);
+            }
+        })
+    };
 }
 
-export function loadSessionFromStorage(): StoredSession | null {
+function readLegacySession(serialized: string): StoredSession {
     try {
-        const stored = localStorage.getItem(SESSION_KEY);
-        if (!stored) {
-            return null;
+        const session = parseStoredSession(JSON.parse(serialized));
+        if (session) {
+            return session;
         }
-        const sessionData = parseStoredSession(JSON.parse(stored));
-        if (sessionData) {
-            return sessionData;
-        }
-        clearSessionFromStorage();
-    } catch (error) {
-        clearSessionFromStorage();
-        console.error("Failed to load session from localStorage:", error);
+    } catch {
+        // Keep the original data intact when migration cannot finish.
     }
-    return null;
+    throw new Error("Your saved Jellyfin session could not be read. Sign in again.");
 }
 
-export function clearSessionFromStorage(): void {
-    localStorage.removeItem(SESSION_KEY);
+let sessionStorage: ReturnType<typeof createSessionStorage> | undefined;
+
+function getSessionStorage(): ReturnType<typeof createSessionStorage> {
+    sessionStorage ??= createSessionStorage(localStorage, createSessionCredentials(iina));
+    return sessionStorage;
+}
+
+export function saveSessionToStorage(session: StoredSession): Promise<void> {
+    return getSessionStorage().save(session);
+}
+
+export function loadSessionFromStorage(): Promise<StoredSession | null> {
+    return getSessionStorage().load();
+}
+
+export function clearSessionFromStorage(session: StoredSession): Promise<void> {
+    return getSessionStorage().clear(session);
 }

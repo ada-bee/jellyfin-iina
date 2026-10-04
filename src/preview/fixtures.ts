@@ -22,6 +22,7 @@ function episode(
         IndexNumber: episodeNumber,
         RunTimeTicks: runtimeMinutes * TICKS_PER_MINUTE,
         UserData: {
+            Key: id,
             PlaybackPositionTicks: Math.round(runtimeMinutes * TICKS_PER_MINUTE * progressPercent / 100),
             Played: progressPercent === 100
         }
@@ -42,6 +43,7 @@ function movie(
         ProductionYear: year,
         RunTimeTicks: runtimeMinutes * TICKS_PER_MINUTE,
         UserData: {
+            Key: id,
             PlaybackPositionTicks: Math.round(runtimeMinutes * TICKS_PER_MINUTE * progressPercent / 100),
             Played: progressPercent === 100
         }
@@ -56,6 +58,7 @@ function series(id: string, name: string, year: number, watched: number, total: 
         ProductionYear: year,
         RecursiveItemCount: total,
         UserData: {
+            Key: id,
             UnplayedItemCount: total - watched
         }
     };

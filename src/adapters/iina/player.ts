@@ -7,16 +7,22 @@ import type {
 } from "../../playback/ports";
 import type { PlaybackHandoff } from "../../jellyfin/types";
 
-import { orderExternalSubtitleTracks, buildSubtitleFlags } from "../../playback/subtitles";
 import {
     resolveJellyfinTrackSelection,
     resolveMpvTrackIds,
     type MpvTrackInfo
 } from "../../playback/tracks";
 import { sanitizeMediaTitle } from "../../playback/title";
+import { IinaExternalSubtitles } from "./externalSubtitles";
+import { escapeMpvListItem, escapeMpvOption, mediaRequestHeaders } from "./mediaAuthentication";
+import { isSameServerUrl } from "../../jellyfin/url";
 
 export class IinaPlayer implements Player {
-    constructor(private readonly logger: PlaybackLogger) {}
+    private readonly subtitles: IinaExternalSubtitles;
+
+    constructor(private readonly logger: PlaybackLogger) {
+        this.subtitles = new IinaExternalSubtitles(logger);
+    }
 
     getPath(): string {
         return iina.mpv.getString("path") || "";
@@ -49,26 +55,30 @@ export class IinaPlayer implements Player {
 
     getTrackSelection(playback: PlaybackSession): TrackSelection {
         const trackList = iina.mpv.getNative<MpvTrackInfo[]>("track-list");
-        return resolveJellyfinTrackSelection(
+        const selection = resolveJellyfinTrackSelection(
             Array.isArray(trackList) ? trackList : null,
-            playback.externalSubtitles,
+            this.subtitles.tracks(playback),
             {
                 audioStreamIndex: playback.audioStreamIndex ?? null,
                 subtitleStreamIndex: playback.subtitleStreamIndex ?? null
             }
         );
+        return {
+            ...selection,
+            subtitleStreamIndex: this.subtitles.pendingSelection(playback) ?? selection.subtitleStreamIndex
+        };
     }
 
     loadReplacement(handoff: PlaybackHandoff, title: string): void {
-        iina.mpv.command("loadfile", buildLoadArguments(handoff.url, "replace", title));
+        iina.mpv.command("loadfile", buildLoadArguments(handoff, "replace", title));
     }
 
     loadNext(handoff: PlaybackHandoff, title: string): void {
-        iina.mpv.command("loadfile", buildLoadArguments(handoff.url, "insert-next", title));
+        iina.mpv.command("loadfile", buildLoadArguments(handoff, "insert-next", title));
     }
 
     loadAppend(handoff: PlaybackHandoff, title: string): void {
-        iina.mpv.command("loadfile", buildLoadArguments(handoff.url, "append", title));
+        iina.mpv.command("loadfile", buildLoadArguments(handoff, "append", title));
     }
 
     removePlaylistEntry(index: number): void {
@@ -96,32 +106,18 @@ export class IinaPlayer implements Player {
     }
 
     loadExternalSubtitles(playback: PlaybackSession): void {
-        const orderedTracks = orderExternalSubtitleTracks(
-            playback.externalSubtitles,
-            playback.subtitleStreamIndex
-        );
-        for (const track of orderedTracks) {
-            try {
-                iina.mpv.command("sub-add", [
-                    track.url,
-                    buildSubtitleFlags(track),
-                    track.title,
-                    track.language
-                ]);
-            } catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
-                this.logger.error(
-                    `Jellyfin: Failed to load subtitle track ${track.index}: ${message}`
-                );
-            }
-        }
+        this.subtitles.load(playback);
+    }
+
+    clearExternalSubtitles(): void {
+        this.subtitles.clear();
     }
 
     applyTrackSelection(playback: PlaybackSession): void {
         const trackList = iina.mpv.getNative<MpvTrackInfo[]>("track-list");
         const trackIds = resolveMpvTrackIds(
             Array.isArray(trackList) ? trackList : [],
-            playback.externalSubtitles,
+            this.subtitles.tracks(playback),
             playback
         );
         applyMpvTrackId("aid", trackIds.audioTrackId);
@@ -140,12 +136,17 @@ function applyMpvTrackId(property: "aid" | "sid", trackId: number | null | undef
 }
 
 function buildLoadArguments(
-    url: string,
+    handoff: PlaybackHandoff,
     mode: "replace" | "insert-next" | "append",
     title: string
 ): string[] {
-    if (!title) {
-        return [url, mode];
+    if (!isSameServerUrl(handoff.serverUrl, handoff.url)) {
+        throw new Error("Jellyfin playback must use the configured HTTPS server.");
     }
-    return [url, mode, "-1", `force-media-title=${sanitizeMediaTitle(title)}`];
+    const headers = mediaRequestHeaders(handoff, handoff.url);
+    const headerList = Object.entries(headers)
+        .map(([key, value]) => escapeMpvListItem(`${key}: ${value}`)).join(",");
+    const options = [`http-header-fields=${escapeMpvOption(headerList)}`];
+    if (title) options.push(`force-media-title=${escapeMpvOption(sanitizeMediaTitle(title))}`);
+    return [handoff.url, mode, "-1", options.join(",")];
 }

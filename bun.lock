@@ -5,14 +5,14 @@
     "": {
       "name": "jellyfin-iina",
       "devDependencies": {
-        "@jellyfin/sdk": "^0.13.0",
+        "@jellyfin/sdk": "1.0.0",
         "iina-plugin-definition": "^0.99.3",
         "typescript": "^5.9.3",
       },
     },
   },
   "packages": {
-    "@jellyfin/sdk": ["@jellyfin/sdk@0.13.0", "", { "peerDependencies": { "axios": "^1.12.0" } }, "sha512-oiBAOXH6s+dKdReSsYgNktBDzbxtg4JVWhEzIxZSxKcWMdSKmBtK41MhXRO7IWAC40DguKUm3nU/Z493qPAlWA=="],
+    "@jellyfin/sdk": ["@jellyfin/sdk@1.0.0", "", { "peerDependencies": { "axios": "^1.12.0" } }, "sha512-bu7EbMxEz+mH2N/v8Oj/dDCQQvTmEVTZBzKhYgwpKrL9l63LMZvjY2gvnU4imMi9389kzh0LQD75MzMtcoDJtA=="],
 
     "asynckit": ["asynckit@0.4.0", "", {}, "sha512-Oei9OH4tRh0YqU3GxhX79dM/mwVgvbZJaSNaRk+bshkj0S5cfHcgYakreBjrHwatXKbz+IoIdYLxrKim2MjW0Q=="],
 

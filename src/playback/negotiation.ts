@@ -8,7 +8,7 @@ import type {
     JellyfinPlaybackInfoResponse,
     PlaybackHandoff
 } from "../jellyfin/types";
-import { normalizeServerUrl } from "../jellyfin/url";
+import { normalizeServerUrl, resolveDeliveryUrl } from "../jellyfin/url";
 
 export interface StreamUrlOptions {
     serverUrl: string;
@@ -48,12 +48,11 @@ export function buildJellyfinStreamUrl(options: StreamUrlOptions): string {
     const params: Record<string, string | number | boolean> = {
         Static: "true",
         mediaSourceId: mediaSourceId,
-        playSessionId: options.playSessionId || "",
-        api_key: options.accessToken
+        playSessionId: options.playSessionId || ""
     };
 
     const queryString = buildQueryString(params);
-    return `${baseUrl}/Videos/${encodeURIComponent(options.itemId)}/stream?${queryString}`;
+    return resolveDeliveryUrl(baseUrl, `/Videos/${encodeURIComponent(options.itemId)}/stream?${queryString}`);
 }
 
 export function buildPlaybackInfoRequest(
@@ -68,8 +67,8 @@ export function buildPlaybackInfoRequest(
         SubtitleStreamIndex: selection.subtitleStreamIndex === null ? -1 : selection.subtitleStreamIndex,
         DeviceProfile: deviceProfile,
         EnableDirectPlay: true,
-        EnableDirectStream: true,
-        EnableTranscoding: true,
+        EnableDirectStream: false,
+        EnableTranscoding: false,
         AllowVideoStreamCopy: true,
         AllowAudioStreamCopy: true
     };
@@ -86,17 +85,18 @@ export function selectPlayableMediaSource(
     if (mediaSource && isPlayableMediaSource(mediaSource)) {
         return mediaSource;
     }
-    if (mediaSourceId) {
+    if (mediaSourceId && !mediaSource) {
         throw new Error("Jellyfin did not provide the selected media source.");
     }
 
     const errorCode = playbackInfo.ErrorCode ? ` (${playbackInfo.ErrorCode})` : "";
-    throw new Error(`Jellyfin did not provide a playable media source${errorCode}.`);
+    throw new Error(`Jellyfin cannot direct play this item${errorCode}. `
+        + "Check the user's playback permissions and the server's bitrate limit, or choose another version. "
+        + "Transcoding will be supported in 3.1.0.");
 }
 
 function isPlayableMediaSource(source: JellyfinMediaSourceInfo): boolean {
-    return Boolean(source.Id)
-        && (source.SupportsDirectPlay === true || Boolean(source.TranscodingUrl));
+    return Boolean(source.Id) && source.SupportsDirectPlay === true;
 }
 
 export function buildPlaybackHandoff(
@@ -110,23 +110,16 @@ export function buildPlaybackHandoff(
 
     const mediaSource = selectPlayableMediaSource(playbackInfo, options.mediaSourceId);
     const mediaSourceId = mediaSource.Id || "";
-    const directPlay = mediaSource.SupportsDirectPlay === true;
-    const url = directPlay
-        ? buildJellyfinStreamUrl({ ...options, mediaSourceId, playSessionId })
-        : buildAuthenticatedDeliveryUrl(
-            options.serverUrl,
-            mediaSource.TranscodingUrl || "",
-            options.accessToken
-        );
+    const url = buildJellyfinStreamUrl({ ...options, mediaSourceId, playSessionId });
     if (!url) {
         throw new Error("Jellyfin returned incomplete playback information.");
     }
     const audioStreamIndex = options.audioStreamIndex === undefined
         ? mediaSource.DefaultAudioStreamIndex
         : options.audioStreamIndex;
-    const subtitleStreamIndex = options.subtitleStreamIndex === undefined
+    const subtitleStreamIndex = normalizeSubtitleStreamIndex(options.subtitleStreamIndex === undefined
         ? mediaSource.DefaultSubtitleStreamIndex
-        : options.subtitleStreamIndex;
+        : options.subtitleStreamIndex);
 
     return {
         url,
@@ -138,13 +131,13 @@ export function buildPlaybackHandoff(
         mediaSourceId,
         playSessionId,
         runtimeTicks: mediaSource.RunTimeTicks || options.runtimeTicks || 0,
-        playMethod: directPlay ? "DirectPlay" : resolveTranscodingPlayMethod(mediaSource),
+        playMethod: "DirectPlay",
         audioStreamIndex,
         subtitleStreamIndex,
         externalSubtitles: buildExternalSubtitleTracks(
             mediaSource,
             options.serverUrl,
-            options.accessToken,
+            options.itemId,
             subtitleStreamIndex
         ),
         seriesId: options.seriesId,
@@ -153,27 +146,14 @@ export function buildPlaybackHandoff(
     };
 }
 
-export function resolveTranscodingPlayMethod(
-    mediaSource: JellyfinMediaSourceInfo
-): "DirectStream" | "Transcode" {
-    const transcodingUrl = mediaSource.TranscodingUrl || "";
-    const videoCodec = getQueryParameter(transcodingUrl, "VideoCodec").toLowerCase();
-    if (videoCodec === "copy") {
-        return "DirectStream";
-    }
-
-    const hasVideo = (mediaSource.MediaStreams || []).some(stream => stream.Type === "Video");
-    const audioCodec = getQueryParameter(transcodingUrl, "AudioCodec").toLowerCase();
-    if (!hasVideo && audioCodec === "copy") {
-        return "DirectStream";
-    }
-    return "Transcode";
+function normalizeSubtitleStreamIndex(index: number | null | undefined): number | null | undefined {
+    return index === -1 ? null : index;
 }
 
 export function buildExternalSubtitleTracks(
     mediaSource: JellyfinMediaSourceInfo,
     serverUrl: string,
-    accessToken: string,
+    itemId: string,
     selectedStreamIndex: number | null | undefined = mediaSource.DefaultSubtitleStreamIndex
 ): ExternalSubtitleTrack[] {
     return (mediaSource.MediaStreams || [])
@@ -182,31 +162,33 @@ export function buildExternalSubtitleTracks(
             stream,
             selectedStreamIndex,
             serverUrl,
-            accessToken
+            itemId,
+            mediaSource.Id || ""
         ))
         .filter((track): track is ExternalSubtitleTrack => track !== null);
 }
 
 function isExternalSubtitleStream(stream: JellyfinMediaStream): boolean {
     return stream.Type === "Subtitle"
-        && stream.DeliveryMethod === "External"
+        && (stream.IsExternal === true || stream.DeliveryMethod === "External")
         && typeof stream.Index === "number"
-        && Boolean(stream.DeliveryUrl);
+        && stream.Index >= 0;
 }
 
 function buildExternalSubtitleTrack(
     stream: JellyfinMediaStream,
     defaultSubtitleStreamIndex: number | null | undefined,
     serverUrl: string,
-    accessToken: string
+    itemId: string,
+    mediaSourceId: string
 ): ExternalSubtitleTrack | null {
     const index = stream.Index;
-    const deliveryUrl = stream.DeliveryUrl || "";
+    const deliveryUrl = stream.DeliveryUrl || buildSubtitleDeliveryPath(stream, itemId, mediaSourceId);
     if (index === undefined || !deliveryUrl) {
         return null;
     }
 
-    const url = buildAuthenticatedDeliveryUrl(serverUrl, deliveryUrl, accessToken);
+    const url = resolveDeliveryUrl(serverUrl, deliveryUrl);
     if (!url) {
         return null;
     }
@@ -222,76 +204,38 @@ function buildExternalSubtitleTrack(
     };
 }
 
-export function buildAuthenticatedDeliveryUrl(
-    serverUrl: string,
-    deliveryUrl: string,
-    accessToken: string
+function buildSubtitleDeliveryPath(
+    stream: JellyfinMediaStream,
+    itemId: string,
+    mediaSourceId: string
 ): string {
-    const baseUrl = normalizeServerUrl(serverUrl);
-    const trimmedDeliveryUrl = deliveryUrl.trim();
-    if (!baseUrl || !trimmedDeliveryUrl) {
+    if (!itemId || !mediaSourceId) {
         return "";
     }
-
-    const isAbsolute = /^https?:\/\//i.test(trimmedDeliveryUrl);
-    const resolvedUrl = isAbsolute
-        ? trimmedDeliveryUrl
-        : `${baseUrl}/${trimmedDeliveryUrl.replace(/^\/+/, "")}`;
-    if (!/^https:\/\//i.test(resolvedUrl)) {
+    const format = getSubtitleFormat(stream);
+    if (!format) {
         return "";
     }
+    return `/Videos/${encodeURIComponent(itemId)}/${encodeURIComponent(mediaSourceId)}`
+        + `/Subtitles/${stream.Index}/Stream.${format}`;
+}
 
-    const serverOrigin = getHttpOrigin(baseUrl);
-    const deliveryOrigin = getHttpOrigin(resolvedUrl);
-    if (!accessToken || !serverOrigin || serverOrigin !== deliveryOrigin || hasAccessToken(resolvedUrl)) {
-        return resolvedUrl;
+function getSubtitleFormat(stream: JellyfinMediaStream): string {
+    if (/\.mks$/i.test(stream.Path || "")) {
+        return "mks";
     }
-
-    return appendQueryParameter(resolvedUrl, "api_key", accessToken);
-}
-
-function getHttpOrigin(url: string): string {
-    const match = url.match(/^https?:\/\/[^/?#]+/i);
-    return match ? match[0].toLowerCase() : "";
-}
-
-function hasAccessToken(url: string): boolean {
-    return /[?&](?:api_key|access_token|x-emby-token)=/i.test(url);
-}
-
-function getQueryParameter(url: string, requestedKey: string): string {
-    const queryStart = url.indexOf("?");
-    if (queryStart === -1) {
+    const codec = (stream.Codec || "").toLowerCase();
+    const formats: Record<string, string> = {
+        ass: "ass", ssa: "ssa", srt: "srt", subrip: "srt", vtt: "vtt", webvtt: "vtt",
+        pgssub: "pgssub", hdmv_pgs_subtitle: "pgssub", sup: "pgssub"
+    };
+    if (formats[codec]) {
+        return formats[codec];
+    }
+    if (stream.IsTextSubtitleStream === false) {
         return "";
     }
-
-    const queryEnd = url.indexOf("#", queryStart);
-    const query = url.substring(queryStart + 1, queryEnd === -1 ? url.length : queryEnd);
-    for (const pair of query.split("&")) {
-        const separator = pair.indexOf("=");
-        const rawKey = separator === -1 ? pair : pair.substring(0, separator);
-        if (decodeQueryValue(rawKey).toLowerCase() !== requestedKey.toLowerCase()) {
-            continue;
-        }
-        return decodeQueryValue(separator === -1 ? "" : pair.substring(separator + 1));
-    }
-    return "";
-}
-
-function decodeQueryValue(value: string): string {
-    try {
-        return decodeURIComponent(value.replace(/\+/g, " "));
-    } catch (error) {
-        return value;
-    }
-}
-
-function appendQueryParameter(url: string, key: string, value: string): string {
-    const fragmentIndex = url.indexOf("#");
-    const fragment = fragmentIndex === -1 ? "" : url.substring(fragmentIndex);
-    const urlWithoutFragment = fragmentIndex === -1 ? url : url.substring(0, fragmentIndex);
-    const separator = urlWithoutFragment.includes("?") ? "&" : "?";
-    return `${urlWithoutFragment}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}${fragment}`;
+    return "srt";
 }
 
 export function buildJellyfinWindowTitle(item: JellyfinBaseItem | null, fallbackName: string): string {

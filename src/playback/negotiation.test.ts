@@ -4,13 +4,11 @@ import type { JellyfinPlaybackInfoResponse } from "../jellyfin/types";
 
 import { IINA_DEVICE_PROFILE } from "../jellyfin/deviceProfile";
 import {
-    buildAuthenticatedDeliveryUrl,
     buildExternalSubtitleTracks,
     buildJellyfinStreamUrl,
     buildJellyfinWindowTitle,
     buildPlaybackHandoff,
     buildPlaybackInfoRequest,
-    resolveTranscodingPlayMethod,
     selectPlayableMediaSource
 } from "./negotiation";
 
@@ -85,7 +83,7 @@ describe("Jellyfin playback negotiation", () => {
         };
 
         expect(() => selectPlayableMediaSource(response)).toThrow(
-            "Jellyfin did not provide a playable media source (NoCompatibleStream)."
+            "Jellyfin cannot direct play this item (NoCompatibleStream)."
         );
     });
 
@@ -101,8 +99,8 @@ describe("Jellyfin playback negotiation", () => {
             SubtitleStreamIndex: -1,
             DeviceProfile: IINA_DEVICE_PROFILE,
             EnableDirectPlay: true,
-            EnableDirectStream: true,
-            EnableTranscoding: true
+            EnableDirectStream: false,
+            EnableTranscoding: false
         });
     });
 
@@ -124,6 +122,12 @@ describe("Jellyfin playback negotiation", () => {
             ...baseOptions,
             subtitleStreamIndex: null
         }).subtitleStreamIndex).toBeNull();
+        response.MediaSources![0]!.DefaultSubtitleStreamIndex = -1;
+        expect(buildPlaybackHandoff(response, baseOptions).subtitleStreamIndex).toBeNull();
+        expect(buildPlaybackHandoff(response, {
+            ...baseOptions,
+            subtitleStreamIndex: 4
+        }).subtitleStreamIndex).toBe(4);
     });
 
     test("advertises IINA as an uncapped external player", () => {
@@ -138,7 +142,7 @@ describe("Jellyfin playback negotiation", () => {
         });
     });
 
-    test("keeps Jellyfin's source order when the preferred source requires remuxing", () => {
+    test("skips sources requiring remuxing and fails clearly when they are selected", () => {
         const response: JellyfinPlaybackInfoResponse = {
             PlaySessionId: "session-id",
             MediaSources: [
@@ -152,27 +156,16 @@ describe("Jellyfin playback negotiation", () => {
             ]
         };
 
-        expect(selectPlayableMediaSource(response).Id).toBe("preferred-remux");
+        expect(selectPlayableMediaSource(response).Id).toBe("alternate-direct");
         const handoff = buildPlaybackHandoff(response, baseOptions);
-        expect(handoff.playMethod).toBe("DirectStream");
-        expect(handoff.url).toBe(
-            "https://media.example.test/jellyfin/Videos/item/master.m3u8" +
-            "?VideoCodec=copy&AudioCodec=aac&api_key=secret%20token"
+        expect(handoff.playMethod).toBe("DirectPlay");
+        expect(handoff.url).toContain("mediaSourceId=alternate-direct");
+        expect(() => buildPlaybackHandoff(response, {
+            ...baseOptions,
+            mediaSourceId: "preferred-remux"
+        })).toThrow(
+            "Jellyfin cannot direct play this item."
         );
-    });
-
-    test("reports video encoding as transcoding", () => {
-        expect(resolveTranscodingPlayMethod({
-            TranscodingUrl: "/Videos/item/master.m3u8?VideoCodec=h264&AudioCodec=aac",
-            MediaStreams: [{ Type: "Video" }]
-        })).toBe("Transcode");
-    });
-
-    test("reports audio-only stream copy as direct streaming", () => {
-        expect(resolveTranscodingPlayMethod({
-            TranscodingUrl: "/Audio/item/universal?AudioCodec=copy",
-            MediaStreams: [{ Type: "Audio" }]
-        })).toBe("DirectStream");
     });
 
     test("builds a typed handoff from the selected source", () => {
@@ -216,7 +209,7 @@ describe("Jellyfin playback negotiation", () => {
             }]
         });
         expect(handoff.externalSubtitles[0]?.url).toBe(
-            "https://media.example.test/jellyfin/Videos/item-id/Subtitles/4/0/Stream.srt?api_key=secret%20token"
+            "https://media.example.test/jellyfin/Videos/item-id/Subtitles/4/0/Stream.srt"
         );
     });
 });
@@ -245,7 +238,7 @@ describe("external subtitle delivery", () => {
                     DeliveryUrl: "/Audio/5"
                 }
             ]
-        }, baseOptions.serverUrl, baseOptions.accessToken);
+        }, baseOptions.serverUrl, baseOptions.itemId);
 
         expect(tracks).toHaveLength(1);
         expect(tracks[0]).toMatchObject({
@@ -255,32 +248,76 @@ describe("external subtitle delivery", () => {
         });
     });
 
-    test("does not duplicate an existing Jellyfin access token", () => {
-        const url = buildAuthenticatedDeliveryUrl(
-            baseOptions.serverUrl,
-            "/Videos/item/Subtitles/3/0/Stream.srt?api_key=already-present",
-            baseOptions.accessToken
-        );
+    test("builds missing delivery URLs for direct-play sidecar subtitles", () => {
+        const handoff = buildPlaybackHandoff({
+            PlaySessionId: "session-id",
+            MediaSources: [{
+                Id: "source-id",
+                SupportsDirectPlay: true,
+                DefaultSubtitleStreamIndex: 4,
+                MediaStreams: [
+                    { Type: "Subtitle", Index: 3, Codec: "ass", IsExternal: true },
+                    { Type: "Subtitle", Index: 4, Codec: "subrip", IsExternal: true, Language: "ces" },
+                    { Type: "Subtitle", Index: 5, Codec: "webvtt", IsExternal: true },
+                    { Type: "Subtitle", Index: 6, Codec: "pgssub", IsExternal: true, IsTextSubtitleStream: false },
+                    { Type: "Subtitle", Index: 7, Codec: "ass", IsExternal: false },
+                    { Type: "Subtitle", Index: 8, Codec: "dvdsub", IsExternal: true,
+                        IsTextSubtitleStream: false, Path: "/media/subtitles.mks" },
+                    { Type: "Subtitle", Index: 9, Codec: "dvdsub", IsExternal: true,
+                        IsTextSubtitleStream: false, Path: "/media/subtitles.idx" }
+                ]
+            }]
+        }, baseOptions);
 
-        expect(url.match(/api_key=/g)).toHaveLength(1);
+        expect(handoff.externalSubtitles.map(track => track.url)).toEqual([
+            "https://media.example.test/jellyfin/Videos/item-id/source-id/Subtitles/3/Stream.ass",
+            "https://media.example.test/jellyfin/Videos/item-id/source-id/Subtitles/4/Stream.srt",
+            "https://media.example.test/jellyfin/Videos/item-id/source-id/Subtitles/5/Stream.vtt",
+            "https://media.example.test/jellyfin/Videos/item-id/source-id/Subtitles/6/Stream.pgssub",
+            "https://media.example.test/jellyfin/Videos/item-id/source-id/Subtitles/8/Stream.mks"
+        ]);
+        expect(handoff.externalSubtitles[1]).toMatchObject({ index: 4, isDefault: true, language: "ces" });
+        expect(handoff.externalSubtitles.filter(track => track.isDefault)).toHaveLength(1);
     });
 
-    test("does not send the Jellyfin token to another host", () => {
-        const url = buildAuthenticatedDeliveryUrl(
-            baseOptions.serverUrl,
-            "https://subtitles.example.test/subtitle.srt",
-            baseOptions.accessToken
-        );
+    test("preserves supplied delivery URLs and sanitizes legacy tokens", () => {
+        const tracks = buildExternalSubtitleTracks({
+            Id: "source-id",
+            MediaStreams: [{
+                Type: "Subtitle", Index: 2, IsExternal: true,
+                DeliveryUrl: "/jellyfin/Videos/item-id/source-id/Subtitles/2/Stream.srt?api_key=old-token&tag=revision"
+            }]
+        }, baseOptions.serverUrl, baseOptions.itemId);
 
-        expect(url).toBe("https://subtitles.example.test/subtitle.srt");
+        expect(tracks[0]?.url).toBe(
+            "https://media.example.test/jellyfin/Videos/item-id/source-id/Subtitles/2/Stream.srt?tag=revision"
+        );
     });
 
-    test("rejects insecure subtitle delivery", () => {
-        expect(buildAuthenticatedDeliveryUrl(
-            baseOptions.serverUrl,
-            "http://subtitles.example.test/subtitle.srt",
-            baseOptions.accessToken
-        )).toBe("");
+    test("does not select external subtitles when Jellyfin remembers Off", () => {
+        const handoff = buildPlaybackHandoff({
+            PlaySessionId: "session-id",
+            MediaSources: [{
+                Id: "source-id", SupportsDirectPlay: true, DefaultSubtitleStreamIndex: -1,
+                MediaStreams: [{ Type: "Subtitle", Index: 4, IsExternal: true, Codec: "srt", IsDefault: true }]
+            }]
+        }, baseOptions);
+
+        expect(handoff.subtitleStreamIndex).toBeNull();
+        expect(handoff.externalSubtitles[0]?.isDefault).toBe(false);
+    });
+
+    test("omits invalid deliveries and unavailable fallback routes", () => {
+        const tracks = buildExternalSubtitleTracks({
+            MediaStreams: [
+                { Type: "Subtitle", Index: 1, IsExternal: true, Codec: "srt" },
+                { Type: "Subtitle", Index: -1, IsExternal: true, DeliveryUrl: "/subtitle.srt" },
+                { Type: "Subtitle", IsExternal: true, DeliveryUrl: "/subtitle.srt" },
+                { Type: "Subtitle", Index: 2, IsExternal: true, DeliveryUrl: "http://media.example.test/subtitle.srt" }
+            ]
+        }, baseOptions.serverUrl, baseOptions.itemId);
+
+        expect(tracks).toEqual([]);
     });
 });
 
@@ -295,7 +332,7 @@ describe("Jellyfin stream URLs", () => {
         expect(url).toStartWith("https://media.example.test/jellyfin/Videos/item-id/stream?");
     });
 
-    test("encodes the item id as one route segment", () => {
+    test("rejects path separators in malformed item ids", () => {
         const url = buildJellyfinStreamUrl({
             ...baseOptions,
             itemId: "item/id",
@@ -303,7 +340,7 @@ describe("Jellyfin stream URLs", () => {
             playSessionId: "session-id"
         });
 
-        expect(url).toStartWith("https://media.example.test/jellyfin/Videos/item%2Fid/stream?");
+        expect(url).toBe("");
     });
 
     test("does not encode internal playback state into the media URL", () => {
@@ -316,5 +353,7 @@ describe("Jellyfin stream URLs", () => {
         expect(url).not.toContain("_jf_");
         expect(url).toContain("mediaSourceId=source-id");
         expect(url).toContain("playSessionId=session-id");
+        expect(url).not.toContain("api_key");
+        expect(url).not.toContain("secret");
     });
 });

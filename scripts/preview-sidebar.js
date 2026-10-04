@@ -3,6 +3,14 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { extname, resolve, sep } from "node:path";
 import { Database } from "bun:sqlite";
+import { spawnSync } from "node:child_process";
+import {
+    CREDENTIAL_ACCOUNT,
+    CREDENTIAL_SERVICE,
+    parseStoredSession
+} from "../src/jellyfin/credentials.ts";
+import { buildMediaBrowserAuthorizationHeader } from "../src/jellyfin/auth.ts";
+import manifest from "../Info.json";
 
 const projectRoot = resolve(import.meta.dir, "..");
 const sourceRoot = resolve(projectRoot, "src");
@@ -44,17 +52,31 @@ function readSessionFromDatabase(databasePath) {
         if (!row?.value) {
             return null;
         }
-        const session = JSON.parse(decodeLocalStorageValue(row.value));
-        if (!session.serverUrl || !session.accessToken || !session.userId) {
-            return null;
-        }
-        return session;
+        return parseStoredSession(JSON.parse(decodeLocalStorageValue(row.value)));
     } finally {
         database.close();
     }
 }
 
+function readSessionFromKeychain() {
+    if (process.platform !== "darwin") return null;
+    const result = spawnSync("/usr/bin/security", [
+        "find-generic-password",
+        "-s", `${manifest.identifier} - ${CREDENTIAL_SERVICE}`,
+        "-a", CREDENTIAL_ACCOUNT,
+        "-w"
+    ], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    if (result.status !== 0) return null;
+    try {
+        return parseStoredSession(JSON.parse(result.stdout));
+    } catch {
+        return null;
+    }
+}
+
 async function loadIinaSession() {
+    const savedSession = readSessionFromKeychain();
+    if (savedSession) return savedSession;
     if (iinaStoragePath) {
         const session = readSessionFromDatabase(iinaStoragePath);
         if (session) {
@@ -79,7 +101,13 @@ async function loadIinaSession() {
 }
 
 function buildJellyfinAuthorization(accessToken) {
-    return `MediaBrowser Client="IINA Sidebar Preview", Device="Browser Preview", DeviceId="iina-sidebar-preview", Version="1", Token="${accessToken}"`;
+    return buildMediaBrowserAuthorizationHeader({
+        clientName: "IINA Sidebar Preview",
+        deviceName: "Browser Preview",
+        deviceId: "iina-sidebar-preview",
+        version: manifest.version,
+        token: accessToken
+    });
 }
 
 async function proxyJellyfinRequest(request, url) {

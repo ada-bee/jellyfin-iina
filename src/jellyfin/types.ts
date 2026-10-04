@@ -47,6 +47,7 @@ export interface MediaSegment {
 export interface ExternalSubtitleTrack {
     index: number;
     url: string;
+    localPath?: string;
     title: string;
     language: string;
     isDefault: boolean;

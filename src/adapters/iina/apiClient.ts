@@ -32,7 +32,7 @@ function mapClientError(error: unknown): unknown {
         return new Error(`HTTP ${error.status} ${error.statusText}${detail}`.trim());
     }
     if (error instanceof JellyfinJsonError) {
-        return new Error(`Expected JSON response but got: ${error.snippet}`.trim());
+        return new Error(error.message);
     }
     return error;
 }

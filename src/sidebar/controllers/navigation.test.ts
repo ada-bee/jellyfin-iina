@@ -9,7 +9,7 @@ test("fresh navigation reloads playback data while ordinary navigation uses cach
             const base = process.cwd() + "/src/";
             const rendered = new Map();
             const viewNames = [
-                "appendLibraryGridItems", "renderEmptyState", "renderEpisodeDetails",
+                "appendLibraryGridItems", "clearSearchResults", "renderEmptyState", "renderEpisodeDetails",
                 "renderHomeSections", "renderLibraryGrid", "renderMovieDetails",
                 "renderSearchResults", "renderSeriesDetails", "renderSeriesSeasons",
                 "showLibraryGridLoadError", "showError", "showLoading", "updateTitle", "hideLoading"

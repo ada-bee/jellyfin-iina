@@ -390,7 +390,10 @@ function getInitialSubtitleStreamIndex(
     streams: JellyfinMediaStream[],
     defaultIndex?: number | null
 ): number | null {
-    return defaultIndex ?? streams.find(stream => stream.IsDefault)?.Index ?? null;
+    if (defaultIndex !== undefined) {
+        return defaultIndex === null || defaultIndex < 0 ? null : defaultIndex;
+    }
+    return streams.find(stream => stream.IsDefault)?.Index ?? null;
 }
 
 function compareMediaSources(

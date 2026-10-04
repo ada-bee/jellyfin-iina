@@ -1,8 +1,7 @@
 import type {
     JellyfinAuthenticationResult,
     JellyfinBaseItem,
-    JellyfinPlaybackInfoResponse,
-    JellyfinPublicSystemInfo
+    JellyfinPlaybackInfoResponse
 } from "../../jellyfin/types";
 
 import { createFetchTransport } from "./fetchTransport";
@@ -10,7 +9,8 @@ import {
     JellyfinClient,
     JellyfinHttpError,
     JellyfinJsonError,
-    JellyfinRequestOptions
+    JellyfinRequestOptions,
+    type HttpMethod
 } from "../../jellyfin/client";
 import { IINA_DEVICE_PROFILE } from "../../jellyfin/deviceProfile";
 import { buildPlaybackInfoRequest } from "../../playback/negotiation";
@@ -19,15 +19,15 @@ import type { PlaybackStreamSelection } from "../../playback/negotiation";
 import { CLIENT_NAME, DEVICE_NAME } from "../../shared/constants";
 import { CLIENT_VERSION } from "../../jellyfin/version";
 import { ITEM_DETAILS_FIELDS } from "../../jellyfin/fields";
-import { isConfirmedAuthenticationFailure, JellyfinApiError } from "../../jellyfin/apiError";
+import { JellyfinApiError } from "../../jellyfin/apiError";
 import { buildItemDetailsEndpoint } from "../../jellyfin/endpoints";
 import { state } from "../../sidebar/store";
 import { getDeviceId } from "./storage";
 
-type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 type AuthenticationFailureHandler = () => void;
 
 let authenticationFailureHandler: AuthenticationFailureHandler | null = null;
+let authenticationGeneration = 0;
 const client = new JellyfinClient(createFetchTransport(), {
     clientName: CLIENT_NAME,
     deviceName: DEVICE_NAME,
@@ -36,6 +36,10 @@ const client = new JellyfinClient(createFetchTransport(), {
 
 export function setAuthenticationFailureHandler(handler: AuthenticationFailureHandler): void {
     authenticationFailureHandler = handler;
+}
+
+export function invalidateAuthenticationRequests(): void {
+    authenticationGeneration += 1;
 }
 
 export async function authenticateUser(
@@ -75,17 +79,30 @@ export async function apiRequest<T>(method: HttpMethod, endpoint: string, data?:
         options.body = data;
     }
 
+    const connection = {
+        serverUrl: state.serverUrl,
+        accessToken: state.accessToken,
+        deviceId: getDeviceId()
+    };
+    const generation = authenticationGeneration;
+    const userId = state.userId;
+    const isCurrent = () => generation === authenticationGeneration
+        && connection.serverUrl === state.serverUrl
+        && connection.accessToken === state.accessToken
+        && userId === state.userId;
+
     try {
-        return await client.requestJson<T>({
-            serverUrl: state.serverUrl,
-            accessToken: state.accessToken,
-            deviceId: getDeviceId()
-        }, options);
+        const result = await client.requestJson<T>(connection, options);
+        if (!isCurrent()) {
+            throw new Error("The Jellyfin session changed during this request.");
+        }
+        return result;
     } catch (error) {
         const mappedError = mapClientError(error, endpoint);
         if (mappedError instanceof JellyfinApiError
             && mappedError.status === 401
-            && state.accessToken
+            && connection.accessToken
+            && isCurrent()
             && authenticationFailureHandler) {
             authenticationFailureHandler();
         }
@@ -98,22 +115,9 @@ function mapClientError(error: unknown, endpoint: string): unknown {
         return new JellyfinApiError(error.status, endpoint);
     }
     if (error instanceof JellyfinJsonError) {
-        return new Error(`Expected JSON response for ${endpoint} but got: ${error.snippet}`.trim());
+        return new Error(error.message);
     }
     return error;
-}
-
-export async function fetchServerName(): Promise<string> {
-    try {
-        const systemInfo = await apiRequest<JellyfinPublicSystemInfo>("GET", "/System/Info/Public");
-        return systemInfo?.ServerName || "";
-    } catch (error) {
-        if (isConfirmedAuthenticationFailure(error)) {
-            throw error;
-        }
-        console.error("Failed to fetch server name:", error);
-        return "";
-    }
 }
 
 export async function fetchItemDetails(itemId: string): Promise<JellyfinBaseItem | null> {

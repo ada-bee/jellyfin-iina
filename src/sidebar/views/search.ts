@@ -11,7 +11,11 @@ import { renderEmptyState } from "./chrome";
 import { replaceContent } from "./content";
 import { buildDisclosureChevron } from "./elements";
 
-let cachedSearchResults: JellyfinBaseItem[] = [];
+let cachedSearchResults: JellyfinBaseItem[] | null = null;
+
+export function clearSearchResults(): void {
+    cachedSearchResults = null;
+}
 
 export function renderSearchResults(items: JellyfinBaseItem[]): void {
     cachedSearchResults = [...items];
@@ -27,8 +31,12 @@ export function setSearchFilter(filter: SearchFilter): void {
 }
 
 function renderFilteredSearchResults(): void {
+    if (!cachedSearchResults) {
+        return;
+    }
     const viewModel = buildSearchResultsViewModel(cachedSearchResults, state.searchFilter);
     if (viewModel.visibleItems.length === 0) {
+        setBackdropSlideshow([]);
         renderEmptyState(viewModel.emptyMessage);
         return;
     }

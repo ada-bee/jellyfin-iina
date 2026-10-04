@@ -6,7 +6,7 @@ import { resolveJellyfinTrackSelection, resolveMpvTrackIds } from "./tracks";
 
 const externalSubtitle: ExternalSubtitleTrack = {
     index: 4,
-    url: "https://media.example.test/subtitle.srt?api_key=token",
+    url: "https://media.example.test/subtitle.srt",
     title: "English",
     language: "eng",
     isDefault: true,
@@ -79,5 +79,19 @@ describe("Jellyfin track selection", () => {
         });
         expect(resolveMpvTrackIds([], [], { subtitleStreamIndex: null }).subtitleTrackId)
             .toBeNull();
+    });
+
+    test("matches downloaded external tracks by local path, ignoring unrelated FFmpeg indexes", () => {
+        const subtitle = { ...externalSubtitle, localPath: "/tmp/jellyfin-4.ass" };
+        const trackList: import("./tracks").MpvTrackInfo[] = [
+            { id: 1, type: "sub", external: true, "ff-index": 4, "external-filename": "/tmp/other.srt" },
+            { id: 2, type: "sub", external: true, selected: true, "ff-index": 0,
+                "external-filename": subtitle.localPath }
+        ];
+        expect(resolveMpvTrackIds(trackList, [subtitle], { subtitleStreamIndex: 4 }).subtitleTrackId).toBe(2);
+        expect(resolveJellyfinTrackSelection(trackList, [subtitle], {
+            audioStreamIndex: null, subtitleStreamIndex: null
+        }).subtitleStreamIndex).toBe(4);
+        expect(resolveMpvTrackIds(trackList, [subtitle], { subtitleStreamIndex: -1 }).subtitleTrackId).toBeNull();
     });
 });

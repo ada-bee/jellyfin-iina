@@ -36,11 +36,11 @@ export function initSidebar(): void {
         goHomeFresh("refreshSidebar");
     });
 
-    document.addEventListener("DOMContentLoaded", () => {
+    document.addEventListener("DOMContentLoaded", async () => {
         setupEventListeners();
         sidebarStore.patch({ deviceId: getDeviceId() });
 
-        const restored = restoreSessionFromStorage();
+        const restored = await restoreSessionFromStorage();
         if (restored) {
             goHomeFresh("session-restore");
         }

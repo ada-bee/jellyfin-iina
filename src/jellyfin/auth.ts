@@ -10,15 +10,22 @@ export function buildMediaBrowserAuthorizationHeader(
     options: MediaBrowserAuthHeaderOptions
 ): string {
     const parts = [
-        `Client="${options.clientName}"`,
-        `Device="${options.deviceName}"`,
-        `DeviceId="${options.deviceId}"`,
-        `Version="${options.version}"`
+        `Client="${escapeHeaderValue(options.clientName)}"`,
+        `Device="${escapeHeaderValue(options.deviceName)}"`,
+        `DeviceId="${escapeHeaderValue(options.deviceId)}"`,
+        `Version="${escapeHeaderValue(options.version)}"`
     ];
 
     if (options.token) {
-        parts.push(`Token="${options.token}"`);
+        parts.push(`Token="${escapeHeaderValue(options.token)}"`);
     }
 
     return `MediaBrowser ${parts.join(", ")}`;
+}
+
+function escapeHeaderValue(value: string): string {
+    if (/[\r\n]/.test(value)) {
+        throw new Error("Invalid Jellyfin authentication header.");
+    }
+    return encodeURIComponent(value);
 }

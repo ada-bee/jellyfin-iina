@@ -37,39 +37,82 @@ export interface SidebarPlaybackDependencies {
     reportError(error: unknown): void;
 }
 
-export function createPlayItem(dependencies: SidebarPlaybackDependencies) {
-    return async function playItem(
+export function createPlayItem(
+    dependencies: SidebarPlaybackDependencies,
+    mode: "latest" | "ordered" = "latest"
+) {
+    let generation = 0;
+    let queued = Promise.resolve();
+
+    function playItem(
         itemId: string,
         name: string,
         resumePositionTicks: number = 0,
         context: PlaybackContext = {},
         preferredTitle: string = ""
     ): Promise<void> {
-        try {
-            const playbackInfo = await dependencies.fetchPlaybackInfo(itemId, context);
-            if (!playbackInfo) {
-                throw new Error("Missing playback info");
+        const requestGeneration = mode === "latest" ? ++generation : generation;
+        const connection = { ...dependencies.getConnection() };
+        const deviceId = dependencies.getDeviceId();
+        const selection = { ...context };
+        const isCurrent = () => requestGeneration === generation
+            && isSameConnection(connection, dependencies.getConnection());
+
+        async function run(): Promise<void> {
+            if (!isCurrent()) {
+                return;
             }
-            const itemDetails = await dependencies.fetchItemDetails(itemId);
-            const connection = dependencies.getConnection();
-            const resolvedContext = resolvePlaybackContext(context, itemDetails);
-            const playback = buildPlaybackHandoff(playbackInfo, {
-                ...connection,
-                deviceId: dependencies.getDeviceId(),
-                itemId,
-                runtimeTicks: itemDetails?.RunTimeTicks,
-                ...resolvedContext
-            });
-            const title = preferredTitle || buildJellyfinWindowTitle(itemDetails, name) || name;
-            dependencies.send({
-                playback,
-                resumeSeconds: toResumeSeconds(resumePositionTicks),
-                title
-            });
-        } catch (error) {
-            dependencies.reportError(error);
+            try {
+                const playbackInfo = await dependencies.fetchPlaybackInfo(itemId, selection);
+                if (!isCurrent()) {
+                    return;
+                }
+                if (!playbackInfo) {
+                    throw new Error("Missing playback info");
+                }
+                const itemDetails = await dependencies.fetchItemDetails(itemId);
+                if (!isCurrent()) {
+                    return;
+                }
+                const playback = buildPlaybackHandoff(playbackInfo, {
+                    ...connection,
+                    deviceId,
+                    itemId,
+                    runtimeTicks: itemDetails?.RunTimeTicks,
+                    ...resolvePlaybackContext(selection, itemDetails)
+                });
+                const title = preferredTitle || buildJellyfinWindowTitle(itemDetails, name) || name;
+                dependencies.send({
+                    playback,
+                    resumeSeconds: toResumeSeconds(resumePositionTicks),
+                    title
+                });
+            } catch (error) {
+                if (isCurrent()) {
+                    dependencies.reportError(error);
+                }
+            }
         }
-    };
+
+        if (mode === "ordered") {
+            queued = queued.then(run, run);
+            return queued;
+        }
+        return run();
+    }
+
+    return Object.assign(playItem, {
+        cancel(): void {
+            generation += 1;
+            queued = Promise.resolve();
+        }
+    });
+}
+
+function isSameConnection(left: SidebarConnection, right: SidebarConnection): boolean {
+    return left.serverUrl === right.serverUrl
+        && left.accessToken === right.accessToken
+        && left.userId === right.userId;
 }
 
 function resolvePlaybackContext(

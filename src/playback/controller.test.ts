@@ -94,12 +94,10 @@ describe("PlaybackController", () => {
         expect(harness.player.appendLoads).toEqual([{ handoff: queued, title: "Queued title" }]);
         expect(harness.view.hideSidebarCount).toBe(1);
 
-        harness.player.playlist.push({ filename: queued.url });
         harness.controller.onEndFile();
         expect(harness.player.opened).toEqual([]);
 
-        harness.player.path = queued.url;
-        harness.controller.onFileLoaded();
+        loadFile(harness, queued.url);
         harness.clock.runTimeout(CONFIG.resumeSeekDelayMs);
 
         expect(harness.player.titles).toEqual(["Queued title"]);
@@ -120,8 +118,7 @@ describe("PlaybackController", () => {
 
         harness.player.path = "/local/second.mkv";
         harness.controller.onFileLoaded();
-        harness.player.path = queued.url;
-        harness.controller.onFileLoaded();
+        loadFile(harness, queued.url);
         harness.clock.runTimeout(CONFIG.resumeSeekDelayMs);
         await settle();
 
@@ -199,6 +196,175 @@ describe("PlaybackController", () => {
 
         harness.player.path = CONFIG.libraryHostUrl;
         harness.controller.onFileLoaded();
+    });
+
+    test("restores reporting and subtitles when replaying a native playlist entry", async () => {
+        const harness = createHarness();
+        const first = handoff("first");
+        const second = handoff("second");
+        harness.controller.play({ playback: first, title: "First", resumeSeconds: 12 });
+        loadFile(harness, first.url);
+        harness.clock.runTimeout(CONFIG.resumeSeekDelayMs);
+        harness.controller.queue({ playback: second });
+
+        loadFile(harness, second.url);
+        loadFile(harness, first.url);
+        harness.clock.runTimeout(CONFIG.resumeSeekDelayMs);
+        await settle();
+
+        expect(harness.api.starts).toEqual(["session-first", "session-second", "session-first"]);
+        expect(harness.api.stops.map(stop => stop.playSessionId)).toEqual([
+            "session-first", "session-second"
+        ]);
+        expect(harness.player.subtitles).toEqual(["first", "second", "first"]);
+        expect(harness.player.seeks).toEqual([12]);
+        expect(harness.player.titles).toEqual(["First", "First"]);
+        expect(harness.player.playlist.map(entry => entry.filename)).toEqual([first.url, second.url]);
+    });
+
+    test("does not count previously played entries as queued playback", () => {
+        const harness = createHarness();
+        const first = handoff("first");
+        const last = handoff("last");
+        startPlayback(harness, first);
+        harness.controller.queue({ playback: last });
+        loadFile(harness, last.url);
+
+        harness.controller.onEndFile();
+
+        expect(harness.player.opened).toEqual([CONFIG.libraryHostUrl]);
+    });
+
+    test("preserves a local file queued after Jellyfin playback", () => {
+        const harness = createHarness();
+        startPlayback(harness, handoff("movie"));
+        harness.player.playlist.push({ filename: "/local/movie.mkv" });
+
+        harness.controller.onEndFile();
+
+        expect(harness.player.opened).toEqual([]);
+    });
+
+    test("returns to the library after removing the last playing native playlist entry", () => {
+        const harness = createHarness();
+        const first = handoff("first");
+        const last = handoff("last");
+        startPlayback(harness, first);
+        harness.controller.queue({ playback: last });
+        loadFile(harness, last.url);
+        harness.player.playlist.splice(1);
+
+        harness.controller.onEndFile();
+
+        expect(harness.player.opened).toEqual([CONFIG.libraryHostUrl]);
+    });
+
+    test.each(["end event", "EOF tick"])("recovers after deleting an autoqueued episode: %s", async mode => {
+        const harness = createHarness();
+        harness.api.autoplayResults.push(Promise.resolve({
+            handoff: handoff("next", true),
+            title: "Next episode"
+        }));
+        startPlayback(harness, handoff("episode", true));
+        await settle();
+        harness.player.playlist.splice(1);
+
+        if (mode === "end event") {
+            harness.controller.onEndFile();
+        } else {
+            harness.player.position = 100;
+            harness.player.duration = 100;
+            harness.player.eof = true;
+            harness.clock.runInterval(CONFIG.playbackTickIntervalMs);
+        }
+
+        expect(harness.player.opened).toEqual([CONFIG.libraryHostUrl]);
+        expect(harness.api.stops).toHaveLength(1);
+    });
+
+    test("returns to the library when a requested stream fails before file-loaded", () => {
+        const harness = createHarness();
+        const playback = handoff("unavailable");
+        harness.controller.play({ playback });
+        harness.controller.onEndFile();
+        expect(harness.player.opened).toEqual([]);
+
+        harness.player.path = playback.url;
+        harness.controller.onStartFile();
+        harness.player.path = "";
+        harness.player.playlist = [];
+        harness.controller.onEndFile();
+        harness.controller.onEndFile();
+
+        expect(harness.player.opened).toEqual([CONFIG.libraryHostUrl]);
+        expect(harness.view.showSidebarCount).toBe(1);
+        expect(harness.api.starts).toEqual([]);
+        expect(harness.api.stops).toEqual([]);
+    });
+
+    test("ignores the failed load of a superseded request", () => {
+        const harness = createHarness();
+        const old = handoff("old");
+        const current = handoff("current");
+        harness.controller.play({ playback: old });
+        harness.player.path = old.url;
+        harness.controller.onStartFile();
+        harness.controller.play({ playback: current });
+        harness.controller.onEndFile();
+
+        expect(harness.player.opened).toEqual([]);
+        loadFile(harness, current.url);
+        expect(harness.api.starts).toEqual(["session-current"]);
+    });
+
+    test("skips a failed queued stream when another playlist entry follows it", () => {
+        const harness = createHarness();
+        const first = handoff("first");
+        const unavailable = handoff("unavailable");
+        const last = handoff("last");
+        startPlayback(harness, first);
+        harness.controller.queue({ playback: unavailable });
+        harness.controller.queue({ playback: last });
+        harness.controller.onEndFile();
+        selectFile(harness.player, unavailable.url);
+        harness.controller.onStartFile();
+
+        harness.controller.onEndFile();
+        expect(harness.player.opened).toEqual([]);
+        loadFile(harness, last.url);
+        expect(harness.api.starts).toEqual(["session-first", "session-last"]);
+    });
+
+    test("clears playback credentials and pending work when authentication is cleared", async () => {
+        const harness = createHarness();
+        const pending = deferred<AutoplayResult | null>();
+        const current = handoff("current", true);
+        harness.api.autoplayResults.push(pending.promise);
+        startPlayback(harness, current);
+
+        harness.controller.onAuthCleared();
+        expect(harness.player.playlist).toEqual([]);
+        pending.resolve({ handoff: handoff("next", true), title: "Next" });
+        await settle();
+        loadFile(harness, current.url);
+
+        expect(harness.player.opened).toEqual([CONFIG.libraryHostUrl]);
+        expect(harness.player.nextLoads).toEqual([]);
+        expect(harness.api.starts).toEqual(["session-current"]);
+        expect(harness.api.stops).toHaveLength(1);
+        expect(harness.clock.intervals.size).toBe(0);
+    });
+
+    test("removes authenticated queue entries while preserving unrelated local playback", () => {
+        const harness = createHarness();
+        harness.player.playlist = [{ filename: "/local/movie.mkv", current: true }];
+        harness.player.path = "/local/movie.mkv";
+        harness.controller.queue({ playback: handoff("queued") });
+
+        harness.controller.onAuthCleared();
+
+        expect(harness.player.playlist).toEqual([{ filename: "/local/movie.mkv", current: true }]);
+        expect(harness.player.opened).toEqual([]);
     });
 
     test("window close stops once, keeps the last useful position, and cancels timers", async () => {
@@ -349,16 +515,26 @@ class FakePlayer implements Player {
     }
     getPlaylist() { return this.playlist; }
     getTrackSelection() { return this.selection; }
-    loadReplacement(handoff: PlaybackHandoff) { this.replacements.push(handoff); }
+    loadReplacement(handoff: PlaybackHandoff) {
+        this.replacements.push(handoff);
+        this.playlist = [{ filename: handoff.url, current: true }];
+    }
     loadNext(handoff: PlaybackHandoff, title: string) {
         this.nextLoads.push({ handoff, title });
+        const index = this.playlist.findIndex(entry => entry.current);
+        this.playlist.splice(index + 1, 0, { filename: handoff.url });
     }
     loadAppend(handoff: PlaybackHandoff, title: string) {
         this.appendLoads.push({ handoff, title });
+        this.playlist.push({ filename: handoff.url });
     }
-    removePlaylistEntry(index: number) { this.removed.push(index); }
+    removePlaylistEntry(index: number) {
+        this.removed.push(index);
+        this.playlist.splice(index, 1);
+    }
     setWindowTitle(title: string) { this.titles.push(title); }
     seek(seconds: number) { this.seeks.push(seconds); }
+    clearExternalSubtitles() {}
     loadExternalSubtitles(playback: PlaybackSession) { this.subtitles.push(playback.itemId); }
     applyTrackSelection(playback: PlaybackSession) { this.appliedSelections.push(playback.itemId); }
     open(url: string) { this.opened.push(url); }
@@ -436,13 +612,25 @@ function startPlayback(
     playback: PlaybackHandoff
 ): void {
     harness.controller.play({ playback });
-    harness.player.path = playback.url;
+    loadFile(harness, playback.url);
+}
+
+function loadFile(harness: ReturnType<typeof createHarness>, url: string): void {
+    selectFile(harness.player, url);
+    harness.controller.onStartFile();
     harness.controller.onFileLoaded();
+}
+
+function selectFile(player: FakePlayer, url: string): void {
+    player.path = url;
+    for (const entry of player.playlist) {
+        entry.current = entry.filename === url;
+    }
 }
 
 function handoff(id: string, episode = false): PlaybackHandoff {
     return {
-        url: `https://media.example.test/${id}.mkv?api_key=secret`,
+        url: `https://media.example.test/${id}.mkv`,
         itemId: id,
         mediaSourceId: `source-${id}`,
         playSessionId: `session-${id}`,

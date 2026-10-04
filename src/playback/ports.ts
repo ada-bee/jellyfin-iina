@@ -37,6 +37,7 @@ export interface Player {
     removePlaylistEntry(index: number): void;
     setWindowTitle(title: string): void;
     seek(seconds: number): void;
+    clearExternalSubtitles(): void;
     loadExternalSubtitles(playback: PlaybackSession): void;
     applyTrackSelection(playback: PlaybackSession): void;
     open(url: string): void;

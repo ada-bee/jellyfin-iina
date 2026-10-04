@@ -276,6 +276,22 @@ describe("sidebar view models", () => {
             .map(track => track.streamIndex)).toEqual([3, 8]);
     });
 
+    test.each([null, -1, undefined, 2])("honors the server subtitle default %s", defaultIndex => {
+        const groups = buildMediaDetailsViewModel({
+            MediaSources: [{
+                DefaultSubtitleStreamIndex: defaultIndex,
+                MediaStreams: [
+                    { Type: "Subtitle", Index: 1, IsDefault: true },
+                    { Type: "Subtitle", Index: 2 }
+                ]
+            }]
+        }).mediaFileSources[0]?.groups;
+
+        const selected = groups?.find(group => group.kind === "subtitle")?.tracks
+            .filter(track => track.selected).map(track => track.streamIndex);
+        expect(selected).toEqual(defaultIndex === undefined ? [1] : defaultIndex === 2 ? [2] : []);
+    });
+
     test("models every video version with its own available tracks", () => {
         const sources = buildMediaDetailsViewModel({
             Type: "Movie",

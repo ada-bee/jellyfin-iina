@@ -87,12 +87,21 @@ export function renderSeriesSeasons(
     if (!currentSection) {
         return false;
     }
-    currentSection.replaceWith(buildSeriesSeasonsSection(
+    const focusedSeasonId = currentSection.contains(document.activeElement)
+        ? document.activeElement?.closest<HTMLElement>(".series-season")?.dataset.seasonId
+        : undefined;
+    const nextSection = buildSeriesSeasonsSection(
         seasons,
         expandedSeasonId,
         episodes,
         episodeLoadState
-    ));
+    );
+    currentSection.replaceWith(nextSection);
+    if (focusedSeasonId !== undefined) {
+        [...nextSection.querySelectorAll<HTMLButtonElement>("[data-season-toggle]")]
+            .find(button => button.dataset.seasonToggle === focusedSeasonId)
+            ?.focus({ preventScroll: true });
+    }
     return true;
 }
 

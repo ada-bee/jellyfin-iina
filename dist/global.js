@@ -28,9 +28,7 @@
     },
     permissions: [
       "network-request",
-      "show-osd",
       "show-alert",
-      "sidebar",
       "file-system",
       "video-overlay"
     ],

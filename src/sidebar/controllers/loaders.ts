@@ -6,6 +6,7 @@ import { sidebarRequests } from "../../adapters/browser/sidebarRequests";
 import { sidebarStore, state, type LibraryState } from "../../sidebar/store";
 import {
     appendLibraryGridItems,
+    clearSearchResults,
     renderEmptyState,
     renderEpisodeDetails,
     renderHomeSections,
@@ -71,6 +72,7 @@ export function clearSidebarRequestCaches(): void {
     libraryViewCache.clear();
     playableDetailsCache.clear();
     seriesDetailsCache.clear();
+    clearSearchResults();
     currentSeriesView = null;
     cancelPendingViewRequest();
 }
@@ -593,6 +595,7 @@ export async function retryExpandedSeriesSeason(): Promise<void> {
 
 export async function performSearch(query: string): Promise<void> {
     const requestId = beginViewRequest();
+    clearSearchResults();
     sidebarStore.setRetryOperation({ kind: "search", query });
     updateTitle("Search Results");
     showLoading("search");
@@ -605,10 +608,6 @@ export async function performSearch(query: string): Promise<void> {
         }
 
         hideLoading();
-        if (items.length === 0) {
-            renderEmptyState("No results found");
-            return;
-        }
         renderSearchResults(items);
     } catch (error) {
         if (!viewRequests.isCurrent(requestId) || state.searchQuery !== query) {

@@ -71,6 +71,7 @@ export function initializePlaybackHandlers(
         }
     });
 
+    registerPlaybackLoadHook(controller);
     iina.event.on("mpv.file-loaded", () => controller.onFileLoaded());
     iina.event.on("mpv.end-file", () => controller.onEndFile());
     iina.event.on("mpv.pause.changed", () => controller.onPauseChanged());
@@ -79,4 +80,17 @@ export function initializePlaybackHandlers(
     iina.event.on("iina.window-will-close", () => controller.onWindowClose());
 
     return controller;
+}
+
+function registerPlaybackLoadHook(controller: PlaybackController): void {
+    iina.mpv.addHook("on_load", 50, async next => {
+        const path = iina.mpv.getString("path") || "";
+        // IINA dispatches end-file on its main thread; let the previous file finish there first.
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+        try {
+            controller.onStartFile(path);
+        } finally {
+            next?.();
+        }
+    });
 }

@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { buildJellyfinImageUrl } from "./images";
 
 describe("Jellyfin image URLs", () => {
-    test("preserves the Base URL path and authenticates the request", () => {
+    test("preserves the Base URL path without exposing credentials on public images", () => {
         const url = new URL(buildJellyfinImageUrl({
             serverUrl: "https://media.example.test/jellyfin/",
             accessToken: "secret token",
@@ -13,7 +13,8 @@ describe("Jellyfin image URLs", () => {
         }));
 
         expect(url.pathname).toBe("/jellyfin/Items/item-id/Images/Thumb");
-        expect(url.searchParams.get("api_key")).toBe("secret token");
+        expect(url.searchParams.has("api_key")).toBe(false);
+        expect(url.href).not.toContain("secret");
         expect(url.searchParams.get("maxWidth")).toBe("160");
     });
 

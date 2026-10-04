@@ -3,6 +3,8 @@
   var MESSAGE_NAMES = {
     AuthUpdated: "authUpdated",
     AuthCleared: "authCleared",
+    CredentialRequest: "credentialRequest",
+    CredentialResponse: "credentialResponse",
     PlayItem: "playItem",
     QueueItem: "queueItem",
     BackdropContext: "backdropContext",
@@ -82,9 +84,7 @@
     },
     permissions: [
       "network-request",
-      "show-osd",
       "show-alert",
-      "sidebar",
       "file-system",
       "video-overlay"
     ],
@@ -123,28 +123,6 @@
     }
   }
 
-  // src/playback/subtitles.ts
-  function orderExternalSubtitleTracks(tracks, selectedIndex) {
-    return [...tracks].sort((left, right) => {
-      const leftSelected = left.index === selectedIndex ? 1 : 0;
-      const rightSelected = right.index === selectedIndex ? 1 : 0;
-      return leftSelected - rightSelected;
-    });
-  }
-  function buildSubtitleFlags(track) {
-    const flags = [track.isDefault ? "select" : "auto"];
-    if (track.isDefault) {
-      flags.push("default");
-    }
-    if (track.isForced) {
-      flags.push("forced");
-    }
-    if (track.isHearingImpaired) {
-      flags.push("hearing-impaired");
-    }
-    return flags.join("+");
-  }
-
   // src/playback/tracks.ts
   function resolveJellyfinTrackSelection(trackList, externalSubtitles, fallback) {
     if (!trackList || trackList.length === 0) {
@@ -164,11 +142,14 @@
     };
   }
   function findMpvTrackId(trackList, type, streamIndex, externalSubtitles) {
-    if (streamIndex === undefined || streamIndex === null) {
-      return streamIndex;
+    if (streamIndex === undefined) {
+      return;
     }
-    const externalUrl = externalSubtitles.find((track2) => track2.index === streamIndex)?.url;
-    const track = trackList.find((candidate) => candidate.type === type && (candidate["ff-index"] === streamIndex || Boolean(externalUrl && candidate["external-filename"] === externalUrl)));
+    if (streamIndex === null || streamIndex < 0) {
+      return null;
+    }
+    const externalTrack = externalSubtitles.find((track) => track.index === streamIndex);
+    const track = trackList.find((candidate) => candidate.type === type && (externalTrack ? matchesExternalTrack(candidate, externalTrack) : !candidate.external && candidate["ff-index"] === streamIndex));
     return typeof track?.id === "number" ? track.id : undefined;
   }
   function findPrimarySelectedTrack(trackList, type) {
@@ -184,8 +165,11 @@
     if (!track.external) {
       return getInternalStreamIndex(track);
     }
-    const filename = track["external-filename"] || "";
-    return externalSubtitles.find((subtitle) => subtitle.url === filename)?.index ?? null;
+    return externalSubtitles.find((subtitle) => matchesExternalTrack(track, subtitle))?.index ?? null;
+  }
+  function matchesExternalTrack(track, subtitle) {
+    const filename = track["external-filename"];
+    return Boolean(track.external && filename && (filename === subtitle.localPath || filename === subtitle.url));
   }
 
   // src/playback/title.ts
@@ -193,11 +177,283 @@
     return String(title).replace(/[\n\r,=]/g, " ");
   }
 
+  // src/jellyfin/auth.ts
+  function buildMediaBrowserAuthorizationHeader(options) {
+    const parts = [
+      `Client="${escapeHeaderValue(options.clientName)}"`,
+      `Device="${escapeHeaderValue(options.deviceName)}"`,
+      `DeviceId="${escapeHeaderValue(options.deviceId)}"`,
+      `Version="${escapeHeaderValue(options.version)}"`
+    ];
+    if (options.token) {
+      parts.push(`Token="${escapeHeaderValue(options.token)}"`);
+    }
+    return `MediaBrowser ${parts.join(", ")}`;
+  }
+  function escapeHeaderValue(value) {
+    if (/[\r\n]/.test(value)) {
+      throw new Error("Invalid Jellyfin authentication header.");
+    }
+    return encodeURIComponent(value);
+  }
+
+  // src/jellyfin/url.ts
+  function isHttpsUrl(url) {
+    return parseHttpsUrl(url) !== null;
+  }
+  function normalizeServerUrl(url) {
+    return url.trim().replace(/\/+$/, "");
+  }
+  function resolveDeliveryUrl(serverUrl, deliveryUrl) {
+    const server = parseServerUrl(serverUrl);
+    if (!server || hasUnsafeCharacters(deliveryUrl)) {
+      return "";
+    }
+    const delivery = deliveryUrl.trim();
+    if (!delivery || delivery.startsWith("//")) {
+      return "";
+    }
+    if (/^[a-z][a-z\d+.-]*:/i.test(delivery)) {
+      return serializeDeliveryUrl(parseHttpsUrl(delivery));
+    }
+    const path = `/${delivery.replace(/^\//, "")}`;
+    const prefix = isWithinBasePath(path.split(/[?#]/, 1)[0], server.path) ? "" : server.path;
+    return serializeDeliveryUrl(parseHttpsUrl(`${server.origin}${prefix}${path}`));
+  }
+  function isSameServerUrl(serverUrl, url) {
+    const server = parseServerUrl(serverUrl);
+    const candidate = parseHttpsUrl(url);
+    return server !== null && candidate !== null && server.origin === candidate.origin && isWithinBasePath(candidate.path, server.path);
+  }
+  function parseServerUrl(url) {
+    const parsed = parseHttpsUrl(normalizeServerUrl(url));
+    if (!parsed || parsed.hasSuffix || hasUnsafeCharacters(url)) {
+      return null;
+    }
+    return { ...parsed, path: parsed.path.replace(/\/+$/, "") };
+  }
+  function parseHttpsUrl(url) {
+    if (hasUnsafeCharacters(url)) {
+      return null;
+    }
+    const match = /^https:\/\/([^/?#]+)([^?#]*)(\?[^#]*)?(#.*)?$/i.exec(url.trim());
+    if (!match) {
+      return null;
+    }
+    const authority = normalizeAuthority(match[1]);
+    const path = match[2] || "/";
+    if (!authority || !hasSafePath(path)) {
+      return null;
+    }
+    return {
+      origin: `https://${authority}`,
+      path,
+      query: (match[3] || "").slice(1),
+      hasSuffix: Boolean(match[3] || match[4])
+    };
+  }
+  function normalizeAuthority(authority) {
+    const match = /^(\[[\da-f:.]+\]|[a-z\d._-]+)(?::(\d+))?$/i.exec(authority);
+    if (!match) {
+      return "";
+    }
+    const port = match[2] === undefined ? 443 : Number(match[2]);
+    if (!Number.isInteger(port) || port > 65535) {
+      return "";
+    }
+    return match[1].toLowerCase() + (port === 443 ? "" : `:${port}`);
+  }
+  function hasUnsafeCharacters(value) {
+    return /[\u0000-\u001f\u007f\\]/.test(value);
+  }
+  function hasSafePath(path) {
+    if (!path.startsWith("/") || /[\u0000-\u0020\u007f\\]/.test(path) || /%(?:2f|5c|3f|23)/i.test(path)) {
+      return false;
+    }
+    try {
+      const decoded = decodeURIComponent(path);
+      return !hasUnsafeCharacters(decoded) && !/(?:^|\/)\.{1,2}(?:[\/;]|$)/.test(decoded) && !/%[\da-f]{2}/i.test(decoded);
+    } catch (_) {
+      return false;
+    }
+  }
+  function isWithinBasePath(path, basePath) {
+    return !basePath || path === basePath || path.startsWith(`${basePath}/`);
+  }
+  function serializeDeliveryUrl(url) {
+    if (!url) {
+      return "";
+    }
+    const query = url.query.split("&").filter(keepQueryParameter).join("&");
+    return `${url.origin}${url.path}${query ? `?${query}` : ""}`;
+  }
+  function keepQueryParameter(parameter) {
+    try {
+      const name = decodeURIComponent(parameter.split("=", 1)[0]).toLowerCase();
+      return !["api_key", "apikey", "access_token", "x-emby-token"].includes(name);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // src/adapters/iina/mediaAuthentication.ts
+  function mediaRequestHeaders(playback, url) {
+    if (!isSameServerUrl(playback.serverUrl, url)) {
+      return {};
+    }
+    return {
+      Authorization: buildMediaBrowserAuthorizationHeader({
+        clientName: CLIENT_NAME,
+        deviceName: DEVICE_NAME,
+        deviceId: playback.deviceId,
+        version: CLIENT_VERSION,
+        token: playback.accessToken
+      })
+    };
+  }
+  function escapeMpvOption(value) {
+    let bytes = 0;
+    for (const character of value) {
+      const code = character.codePointAt(0) || 0;
+      bytes += utf8Length(code);
+    }
+    return `%${bytes}%${value}`;
+  }
+  function utf8Length(code) {
+    if (code <= 127)
+      return 1;
+    if (code <= 2047)
+      return 2;
+    return code <= 65535 ? 3 : 4;
+  }
+  function escapeMpvListItem(value) {
+    return value.replace(/,/g, "\\,");
+  }
+
+  // src/adapters/iina/externalSubtitles.ts
+  class IinaExternalSubtitles {
+    logger;
+    generation = 0;
+    loadState = null;
+    files = new Set;
+    instanceId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    constructor(logger) {
+      this.logger = logger;
+    }
+    load(playback) {
+      this.clear();
+      const state = {
+        generation: this.generation,
+        playback,
+        mediaPath: iina.mpv.getString("path") || "",
+        initialSid: currentSubtitleId(),
+        selectedIndex: playback.subtitleStreamIndex,
+        pending: new Set(playback.externalSubtitles.map((track) => track.index)),
+        tracks: playback.externalSubtitles.map((track) => ({ ...track, localPath: undefined }))
+      };
+      this.loadState = state;
+      for (const track of state.tracks) {
+        this.downloadTrack(state, track);
+      }
+    }
+    clear() {
+      this.generation += 1;
+      this.loadState = null;
+      for (const path of this.files) {
+        this.removeFile(path);
+      }
+      this.files.clear();
+    }
+    tracks(playback) {
+      return this.loadState?.playback === playback ? this.loadState.tracks : playback.externalSubtitles;
+    }
+    pendingSelection(playback) {
+      const state = this.loadState;
+      if (state?.playback !== playback || typeof state.selectedIndex !== "number") {
+        return;
+      }
+      return state.pending.has(state.selectedIndex) && this.selectionUnchanged(state) ? state.selectedIndex : undefined;
+    }
+    async downloadTrack(state, track) {
+      const path = this.temporaryPath(state, track);
+      try {
+        await iina.http.download(track.url, path, {
+          method: "GET",
+          headers: mediaRequestHeaders(state.playback, track.url),
+          params: {},
+          data: {}
+        });
+        if (!this.isCurrent(state)) {
+          this.removeFile(path);
+          return;
+        }
+        this.files.add(path);
+        this.addTrack(state, track, path);
+      } catch {
+        this.removeFile(path);
+        if (this.isCurrent(state)) {
+          this.logger.error(`Jellyfin: Failed to load subtitle track ${track.index}.`);
+        }
+      } finally {
+        state.pending.delete(track.index);
+      }
+    }
+    addTrack(state, track, path) {
+      const localPath = iina.utils.resolvePath(path);
+      if (!localPath || !iina.file.exists(path)) {
+        throw new Error("Subtitle download did not create a local file.");
+      }
+      const select = track.index === state.selectedIndex && this.selectionUnchanged(state);
+      const previousSid = currentSubtitleId();
+      track.localPath = localPath;
+      iina.mpv.command("sub-add", [
+        localPath,
+        select ? "select" : "auto",
+        track.title,
+        track.language
+      ]);
+      if (!select) {
+        iina.mpv.set("sid", previousSid);
+      }
+      const tracks = iina.mpv.getNative("track-list");
+      if (!tracks?.some((candidate) => candidate["external-filename"] === localPath)) {
+        track.localPath = undefined;
+        throw new Error("The player could not read the subtitle file.");
+      }
+    }
+    isCurrent(state) {
+      return state.generation === this.generation && iina.mpv.getString("path") === state.mediaPath;
+    }
+    selectionUnchanged(state) {
+      return currentSubtitleId() === state.initialSid;
+    }
+    temporaryPath(state, track) {
+      const match = track.url.match(/\.([a-z0-9]+)(?:[?#]|$)/i);
+      const format = match?.[1]?.toLowerCase() || "srt";
+      const extension = format === "pgssub" ? "sup" : format;
+      return `@tmp/jellyfin-${this.instanceId}-${state.generation}-${track.index}.${extension}`;
+    }
+    removeFile(path) {
+      this.files.delete(path);
+      try {
+        if (iina.file.exists(path))
+          iina.file.delete(path);
+      } catch {
+        this.logger.error("Jellyfin: Failed to remove a temporary subtitle file.");
+      }
+    }
+  }
+  function currentSubtitleId() {
+    return iina.mpv.getString("sid") || "no";
+  }
+
   // src/adapters/iina/player.ts
   class IinaPlayer {
     logger;
+    subtitles;
     constructor(logger) {
       this.logger = logger;
+      this.subtitles = new IinaExternalSubtitles(logger);
     }
     getPath() {
       return iina.mpv.getString("path") || "";
@@ -223,19 +479,23 @@
     }
     getTrackSelection(playback) {
       const trackList = iina.mpv.getNative("track-list");
-      return resolveJellyfinTrackSelection(Array.isArray(trackList) ? trackList : null, playback.externalSubtitles, {
+      const selection = resolveJellyfinTrackSelection(Array.isArray(trackList) ? trackList : null, this.subtitles.tracks(playback), {
         audioStreamIndex: playback.audioStreamIndex ?? null,
         subtitleStreamIndex: playback.subtitleStreamIndex ?? null
       });
+      return {
+        ...selection,
+        subtitleStreamIndex: this.subtitles.pendingSelection(playback) ?? selection.subtitleStreamIndex
+      };
     }
     loadReplacement(handoff, title) {
-      iina.mpv.command("loadfile", buildLoadArguments(handoff.url, "replace", title));
+      iina.mpv.command("loadfile", buildLoadArguments(handoff, "replace", title));
     }
     loadNext(handoff, title) {
-      iina.mpv.command("loadfile", buildLoadArguments(handoff.url, "insert-next", title));
+      iina.mpv.command("loadfile", buildLoadArguments(handoff, "insert-next", title));
     }
     loadAppend(handoff, title) {
-      iina.mpv.command("loadfile", buildLoadArguments(handoff.url, "append", title));
+      iina.mpv.command("loadfile", buildLoadArguments(handoff, "append", title));
     }
     removePlaylistEntry(index) {
       iina.mpv.command("playlist-remove", [String(index)]);
@@ -257,24 +517,14 @@
       iina.mpv.set("time-pos", seconds);
     }
     loadExternalSubtitles(playback) {
-      const orderedTracks = orderExternalSubtitleTracks(playback.externalSubtitles, playback.subtitleStreamIndex);
-      for (const track of orderedTracks) {
-        try {
-          iina.mpv.command("sub-add", [
-            track.url,
-            buildSubtitleFlags(track),
-            track.title,
-            track.language
-          ]);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          this.logger.error(`Jellyfin: Failed to load subtitle track ${track.index}: ${message}`);
-        }
-      }
+      this.subtitles.load(playback);
+    }
+    clearExternalSubtitles() {
+      this.subtitles.clear();
     }
     applyTrackSelection(playback) {
       const trackList = iina.mpv.getNative("track-list");
-      const trackIds = resolveMpvTrackIds(Array.isArray(trackList) ? trackList : [], playback.externalSubtitles, playback);
+      const trackIds = resolveMpvTrackIds(Array.isArray(trackList) ? trackList : [], this.subtitles.tracks(playback), playback);
       applyMpvTrackId("aid", trackIds.audioTrackId);
       applyMpvTrackId("sid", trackIds.subtitleTrackId);
     }
@@ -287,11 +537,16 @@
       iina.mpv.set(property, trackId === null ? "no" : trackId);
     }
   }
-  function buildLoadArguments(url, mode, title) {
-    if (!title) {
-      return [url, mode];
+  function buildLoadArguments(handoff, mode, title) {
+    if (!isSameServerUrl(handoff.serverUrl, handoff.url)) {
+      throw new Error("Jellyfin playback must use the configured HTTPS server.");
     }
-    return [url, mode, "-1", `force-media-title=${sanitizeMediaTitle(title)}`];
+    const headers = mediaRequestHeaders(handoff, handoff.url);
+    const headerList = Object.entries(headers).map(([key, value]) => escapeMpvListItem(`${key}: ${value}`)).join(",");
+    const options = [`http-header-fields=${escapeMpvOption(headerList)}`];
+    if (title)
+      options.push(`force-media-title=${escapeMpvOption(sanitizeMediaTitle(title))}`);
+    return [handoff.url, mode, "-1", options.join(",")];
   }
 
   // src/adapters/iina/preferences.ts
@@ -342,20 +597,14 @@
     return Boolean(segment && segment.startSeconds !== null && segment.endSeconds !== null && segment.endSeconds > segment.startSeconds);
   }
 
-  // src/jellyfin/url.ts
-  function isHttpsUrl(url) {
-    return url.trim().toLowerCase().startsWith("https://");
-  }
-  function normalizeServerUrl(url) {
-    return url.trim().replace(/\/+$/, "");
-  }
-
   // src/playback/controller.ts
   class PlaybackController {
     dependencies;
     model = {
       active: null,
       handoffs: new Map,
+      requestedUrl: "",
+      loadingUrl: "",
       resumeTimer: null,
       playbackTimer: null,
       playbackTickCount: 0,
@@ -375,10 +624,19 @@
         return;
       }
       this.registerPendingHandoff(request, true);
+      this.model.requestedUrl = handoff.url;
+      this.model.loadingUrl = "";
       this.dependencies.logger.debug("Jellyfin: Playing requested stream");
       this.stopActivePlayback("replacement requested");
-      this.dependencies.player.loadReplacement(handoff, request.title || "");
-      this.dependencies.view.hideSidebar();
+      this.dependencies.player.clearExternalSubtitles();
+      try {
+        this.dependencies.player.loadReplacement(handoff, request.title || "");
+        this.dependencies.view.hideSidebar();
+      } catch (error) {
+        this.logFailure("load playback", error);
+        this.clearPlaybackState("playback command failed");
+        this.handleNoNextEpisode("playback command failed");
+      }
     }
     queue(request) {
       const handoff = this.validateRequest(request);
@@ -399,10 +657,19 @@
         return false;
       }
     }
+    onStartFile(path = this.dependencies.player.getPath()) {
+      this.dependencies.player.clearExternalSubtitles();
+      this.model.loadingUrl = this.model.handoffs.has(path) ? path : "";
+      this.prunePendingHandoffs();
+    }
     onFileLoaded() {
       const path = this.dependencies.player.getPath();
       if (!path) {
         return;
+      }
+      this.model.loadingUrl = "";
+      if (this.model.requestedUrl === path) {
+        this.model.requestedUrl = "";
       }
       if (this.dependencies.config.isLibraryHost(path)) {
         this.dependencies.logger.debug("Jellyfin: Library host loaded, showing sidebar");
@@ -435,14 +702,25 @@
     }
     onEndFile() {
       const active = this.model.active;
+      const loadingUrl = this.model.loadingUrl;
+      this.model.loadingUrl = "";
       if (!active) {
+        this.handleLoadFailure(loadingUrl);
         return;
       }
       this.dependencies.logger.debug("Jellyfin: Playback ended");
-      const autoplayQueued = active.autoplayQueued;
       this.stopActivePlayback("end of playback");
-      if (!autoplayQueued && !this.hasQueuedPlayback()) {
+      if (!this.hasQueuedPlayback(active.url)) {
         this.handleNoNextEpisode("end of playback");
+      }
+    }
+    handleLoadFailure(url) {
+      if (!url || this.model.requestedUrl && this.model.requestedUrl !== url) {
+        return;
+      }
+      this.model.requestedUrl = "";
+      if (!this.hasQueuedPlayback(url)) {
+        this.handleNoNextEpisode("stream failed before file load");
       }
     }
     onPauseChanged() {
@@ -468,6 +746,20 @@
     }
     onWindowClose() {
       this.clearPlaybackState("window close");
+    }
+    onAuthCleared() {
+      const hasPlayback = Boolean(this.model.active || this.model.loadingUrl || this.model.requestedUrl);
+      const playlist = this.dependencies.player.getPlaylist();
+      const jellyfinUrls = new Set(this.model.handoffs.keys());
+      this.clearPlaybackState("authentication cleared");
+      for (let index = playlist.length - 1;index >= 0; index -= 1) {
+        if (jellyfinUrls.has(playlist[index].filename)) {
+          this.dependencies.player.removePlaylistEntry(index);
+        }
+      }
+      if (hasPlayback) {
+        this.handleNoNextEpisode("authentication cleared");
+      }
     }
     pauseLibraryHost() {
       if (this.dependencies.player.isPaused()) {
@@ -500,11 +792,10 @@
       this.stopActivePlayback("new Jellyfin file loaded");
       this.stopSegmentRuntime();
       const active = {
+        url: pending.handoff.url,
         session,
         lastKnownPositionTicks: 0,
         reportingStarted: false,
-        autoplayQueued: false,
-        nextItemId: "",
         segments: []
       };
       this.model.active = active;
@@ -571,7 +862,7 @@
         this.model.playbackTickCount = 0;
         this.reportProgress();
       }
-      if (active.autoplayQueued || this.hasQueuedPlayback()) {
+      if (this.hasQueuedPlayback(active.url)) {
         return;
       }
       const duration = this.dependencies.player.getDurationSeconds();
@@ -607,6 +898,7 @@
       }
       const positionTicks = currentPosition || active.lastKnownPositionTicks || 0;
       this.model.active = null;
+      this.dependencies.player.clearExternalSubtitles();
       this.dependencies.view.clearActiveBackdropItem();
       this.dependencies.logger.debug(`Jellyfin: Stopping playback (${reason})`);
       this.cancelResume();
@@ -622,6 +914,9 @@
       this.cancelResume();
       this.resetPlaybackRuntime();
       this.model.handoffs.clear();
+      this.model.requestedUrl = "";
+      this.model.loadingUrl = "";
+      this.dependencies.player.clearExternalSubtitles();
     }
     resetPlaybackRuntime() {
       this.stopPlaybackTick();
@@ -658,33 +953,26 @@
       }
     }
     async requestAutoplay(active) {
-      active.autoplayQueued = false;
       try {
         const result = await this.dependencies.api.resolveNextEpisode(active.session);
         if (this.model.active !== active) {
           return;
         }
-        active.nextItemId = result?.handoff.itemId || "";
         if (result) {
-          this.queueNextEpisode(active, result.handoff, result.title);
+          this.queueNextEpisode(result.handoff, result.title);
         }
       } catch (error) {
-        if (this.model.active === active) {
-          active.nextItemId = "";
-          active.autoplayQueued = false;
-        }
         this.logFailure("autoplay lookup", error);
       }
     }
-    queueNextEpisode(active, handoff, title) {
+    queueNextEpisode(handoff, title) {
       try {
         const playlist = this.dependencies.player.getPlaylist();
         const currentIndex = findCurrentPlaylistIndex(playlist);
         if (currentIndex !== -1) {
           const nextUrl = playlist[currentIndex + 1]?.filename || "";
           const nextItemId = this.model.handoffs.get(nextUrl)?.handoff.itemId || "";
-          if (nextItemId && nextItemId === active.nextItemId) {
-            active.autoplayQueued = true;
+          if (nextItemId && nextItemId === handoff.itemId) {
             return;
           }
         }
@@ -695,7 +983,6 @@
           resetPlaylist: false
         });
         this.dependencies.player.loadNext(handoff, title);
-        active.autoplayQueued = true;
         this.dependencies.logger.debug("Jellyfin: Queued next episode");
       } catch (error) {
         this.logFailure("queue next episode", error);
@@ -811,20 +1098,26 @@
     takeHandoff(url) {
       const pending = this.model.handoffs.get(url) || null;
       if (pending) {
-        this.model.handoffs.delete(url);
+        this.model.handoffs.set(url, { ...pending, resumeSeconds: 0, resetPlaylist: false });
       }
       return pending;
     }
     prunePendingHandoffs() {
       const queuedUrls = new Set(this.dependencies.player.getPlaylist().map((entry) => entry.filename));
       for (const url of this.model.handoffs.keys()) {
-        if (!queuedUrls.has(url)) {
+        if (!queuedUrls.has(url) && url !== this.model.requestedUrl) {
           this.model.handoffs.delete(url);
         }
       }
     }
-    hasQueuedPlayback() {
-      return this.dependencies.player.getPlaylist().some((entry) => Boolean(entry?.filename) && this.model.handoffs.has(entry.filename));
+    hasQueuedPlayback(endedUrl) {
+      const playlist = this.dependencies.player.getPlaylist();
+      const endedIndex = playlist.findIndex((entry) => entry.filename === endedUrl);
+      const currentIndex = findCurrentPlaylistIndex(playlist);
+      if (currentIndex !== -1 && currentIndex !== endedIndex) {
+        return true;
+      }
+      return endedIndex !== -1 && playlist.slice(endedIndex + 1).some((entry) => Boolean(entry.filename));
     }
     handleNoNextEpisode(reason) {
       this.dependencies.logger.debug("Jellyfin: No next episode:", reason);
@@ -895,9 +1188,6 @@
     ];
     if (options.imageTag) {
       query.push(`tag=${encodeURIComponent(options.imageTag)}`);
-    }
-    if (options.accessToken) {
-      query.push(`api_key=${encodeURIComponent(options.accessToken)}`);
     }
     return `${endpoint}?${query.join("&")}`;
   }
@@ -1021,13 +1311,13 @@
     syncOverlay();
   }
   function buildBackdropUrl(itemId) {
-    const authState2 = getAuthState();
-    if (!authState2) {
+    const authState = getAuthState();
+    if (!authState) {
       return "";
     }
     return buildJellyfinImageUrl({
-      serverUrl: authState2.serverUrl,
-      accessToken: authState2.accessToken,
+      serverUrl: authState.serverUrl,
+      accessToken: authState.accessToken,
       itemId,
       imageType: "Backdrop",
       imageIndex: 0,
@@ -1104,11 +1394,10 @@
     const params = {
       Static: "true",
       mediaSourceId,
-      playSessionId: options.playSessionId || "",
-      api_key: options.accessToken
+      playSessionId: options.playSessionId || ""
     };
     const queryString = buildQueryString(params);
-    return `${baseUrl}/Videos/${encodeURIComponent(options.itemId)}/stream?${queryString}`;
+    return resolveDeliveryUrl(baseUrl, `/Videos/${encodeURIComponent(options.itemId)}/stream?${queryString}`);
   }
   function buildPlaybackInfoRequest(userId, deviceProfile, selection = {}) {
     return {
@@ -1118,8 +1407,8 @@
       SubtitleStreamIndex: selection.subtitleStreamIndex === null ? -1 : selection.subtitleStreamIndex,
       DeviceProfile: deviceProfile,
       EnableDirectPlay: true,
-      EnableDirectStream: true,
-      EnableTranscoding: true,
+      EnableDirectStream: false,
+      EnableTranscoding: false,
       AllowVideoStreamCopy: true,
       AllowAudioStreamCopy: true
     };
@@ -1130,14 +1419,14 @@
     if (mediaSource && isPlayableMediaSource(mediaSource)) {
       return mediaSource;
     }
-    if (mediaSourceId) {
+    if (mediaSourceId && !mediaSource) {
       throw new Error("Jellyfin did not provide the selected media source.");
     }
     const errorCode = playbackInfo.ErrorCode ? ` (${playbackInfo.ErrorCode})` : "";
-    throw new Error(`Jellyfin did not provide a playable media source${errorCode}.`);
+    throw new Error(`Jellyfin cannot direct play this item${errorCode}. ` + "Check the user's playback permissions and the server's bitrate limit, or choose another version. " + "Transcoding will be supported in 3.1.0.");
   }
   function isPlayableMediaSource(source) {
-    return Boolean(source.Id) && (source.SupportsDirectPlay === true || Boolean(source.TranscodingUrl));
+    return Boolean(source.Id) && source.SupportsDirectPlay === true;
   }
   function buildPlaybackHandoff(playbackInfo, options) {
     const playSessionId = playbackInfo.PlaySessionId || "";
@@ -1146,13 +1435,12 @@
     }
     const mediaSource = selectPlayableMediaSource(playbackInfo, options.mediaSourceId);
     const mediaSourceId = mediaSource.Id || "";
-    const directPlay = mediaSource.SupportsDirectPlay === true;
-    const url = directPlay ? buildJellyfinStreamUrl({ ...options, mediaSourceId, playSessionId }) : buildAuthenticatedDeliveryUrl(options.serverUrl, mediaSource.TranscodingUrl || "", options.accessToken);
+    const url = buildJellyfinStreamUrl({ ...options, mediaSourceId, playSessionId });
     if (!url) {
       throw new Error("Jellyfin returned incomplete playback information.");
     }
     const audioStreamIndex = options.audioStreamIndex === undefined ? mediaSource.DefaultAudioStreamIndex : options.audioStreamIndex;
-    const subtitleStreamIndex = options.subtitleStreamIndex === undefined ? mediaSource.DefaultSubtitleStreamIndex : options.subtitleStreamIndex;
+    const subtitleStreamIndex = normalizeSubtitleStreamIndex(options.subtitleStreamIndex === undefined ? mediaSource.DefaultSubtitleStreamIndex : options.subtitleStreamIndex);
     return {
       url,
       serverUrl: normalizeServerUrl(options.serverUrl),
@@ -1163,41 +1451,31 @@
       mediaSourceId,
       playSessionId,
       runtimeTicks: mediaSource.RunTimeTicks || options.runtimeTicks || 0,
-      playMethod: directPlay ? "DirectPlay" : resolveTranscodingPlayMethod(mediaSource),
+      playMethod: "DirectPlay",
       audioStreamIndex,
       subtitleStreamIndex,
-      externalSubtitles: buildExternalSubtitleTracks(mediaSource, options.serverUrl, options.accessToken, subtitleStreamIndex),
+      externalSubtitles: buildExternalSubtitleTracks(mediaSource, options.serverUrl, options.itemId, subtitleStreamIndex),
       seriesId: options.seriesId,
       seasonId: options.seasonId,
       episodeIndex: options.episodeIndex
     };
   }
-  function resolveTranscodingPlayMethod(mediaSource) {
-    const transcodingUrl = mediaSource.TranscodingUrl || "";
-    const videoCodec = getQueryParameter(transcodingUrl, "VideoCodec").toLowerCase();
-    if (videoCodec === "copy") {
-      return "DirectStream";
-    }
-    const hasVideo = (mediaSource.MediaStreams || []).some((stream) => stream.Type === "Video");
-    const audioCodec = getQueryParameter(transcodingUrl, "AudioCodec").toLowerCase();
-    if (!hasVideo && audioCodec === "copy") {
-      return "DirectStream";
-    }
-    return "Transcode";
+  function normalizeSubtitleStreamIndex(index) {
+    return index === -1 ? null : index;
   }
-  function buildExternalSubtitleTracks(mediaSource, serverUrl, accessToken, selectedStreamIndex = mediaSource.DefaultSubtitleStreamIndex) {
-    return (mediaSource.MediaStreams || []).filter(isExternalSubtitleStream).map((stream) => buildExternalSubtitleTrack(stream, selectedStreamIndex, serverUrl, accessToken)).filter((track) => track !== null);
+  function buildExternalSubtitleTracks(mediaSource, serverUrl, itemId, selectedStreamIndex = mediaSource.DefaultSubtitleStreamIndex) {
+    return (mediaSource.MediaStreams || []).filter(isExternalSubtitleStream).map((stream) => buildExternalSubtitleTrack(stream, selectedStreamIndex, serverUrl, itemId, mediaSource.Id || "")).filter((track) => track !== null);
   }
   function isExternalSubtitleStream(stream) {
-    return stream.Type === "Subtitle" && stream.DeliveryMethod === "External" && typeof stream.Index === "number" && Boolean(stream.DeliveryUrl);
+    return stream.Type === "Subtitle" && (stream.IsExternal === true || stream.DeliveryMethod === "External") && typeof stream.Index === "number" && stream.Index >= 0;
   }
-  function buildExternalSubtitleTrack(stream, defaultSubtitleStreamIndex, serverUrl, accessToken) {
+  function buildExternalSubtitleTrack(stream, defaultSubtitleStreamIndex, serverUrl, itemId, mediaSourceId) {
     const index = stream.Index;
-    const deliveryUrl = stream.DeliveryUrl || "";
+    const deliveryUrl = stream.DeliveryUrl || buildSubtitleDeliveryPath(stream, itemId, mediaSourceId);
     if (index === undefined || !deliveryUrl) {
       return null;
     }
-    const url = buildAuthenticatedDeliveryUrl(serverUrl, deliveryUrl, accessToken);
+    const url = resolveDeliveryUrl(serverUrl, deliveryUrl);
     if (!url) {
       return null;
     }
@@ -1211,61 +1489,39 @@
       isHearingImpaired: Boolean(stream.IsHearingImpaired)
     };
   }
-  function buildAuthenticatedDeliveryUrl(serverUrl, deliveryUrl, accessToken) {
-    const baseUrl = normalizeServerUrl(serverUrl);
-    const trimmedDeliveryUrl = deliveryUrl.trim();
-    if (!baseUrl || !trimmedDeliveryUrl) {
+  function buildSubtitleDeliveryPath(stream, itemId, mediaSourceId) {
+    if (!itemId || !mediaSourceId) {
       return "";
     }
-    const isAbsolute = /^https?:\/\//i.test(trimmedDeliveryUrl);
-    const resolvedUrl = isAbsolute ? trimmedDeliveryUrl : `${baseUrl}/${trimmedDeliveryUrl.replace(/^\/+/, "")}`;
-    if (!/^https:\/\//i.test(resolvedUrl)) {
+    const format = getSubtitleFormat(stream);
+    if (!format) {
       return "";
     }
-    const serverOrigin = getHttpOrigin(baseUrl);
-    const deliveryOrigin = getHttpOrigin(resolvedUrl);
-    if (!accessToken || !serverOrigin || serverOrigin !== deliveryOrigin || hasAccessToken(resolvedUrl)) {
-      return resolvedUrl;
+    return `/Videos/${encodeURIComponent(itemId)}/${encodeURIComponent(mediaSourceId)}` + `/Subtitles/${stream.Index}/Stream.${format}`;
+  }
+  function getSubtitleFormat(stream) {
+    if (/\.mks$/i.test(stream.Path || "")) {
+      return "mks";
     }
-    return appendQueryParameter(resolvedUrl, "api_key", accessToken);
-  }
-  function getHttpOrigin(url) {
-    const match = url.match(/^https?:\/\/[^/?#]+/i);
-    return match ? match[0].toLowerCase() : "";
-  }
-  function hasAccessToken(url) {
-    return /[?&](?:api_key|access_token|x-emby-token)=/i.test(url);
-  }
-  function getQueryParameter(url, requestedKey) {
-    const queryStart = url.indexOf("?");
-    if (queryStart === -1) {
+    const codec = (stream.Codec || "").toLowerCase();
+    const formats = {
+      ass: "ass",
+      ssa: "ssa",
+      srt: "srt",
+      subrip: "srt",
+      vtt: "vtt",
+      webvtt: "vtt",
+      pgssub: "pgssub",
+      hdmv_pgs_subtitle: "pgssub",
+      sup: "pgssub"
+    };
+    if (formats[codec]) {
+      return formats[codec];
+    }
+    if (stream.IsTextSubtitleStream === false) {
       return "";
     }
-    const queryEnd = url.indexOf("#", queryStart);
-    const query = url.substring(queryStart + 1, queryEnd === -1 ? url.length : queryEnd);
-    for (const pair of query.split("&")) {
-      const separator = pair.indexOf("=");
-      const rawKey = separator === -1 ? pair : pair.substring(0, separator);
-      if (decodeQueryValue(rawKey).toLowerCase() !== requestedKey.toLowerCase()) {
-        continue;
-      }
-      return decodeQueryValue(separator === -1 ? "" : pair.substring(separator + 1));
-    }
-    return "";
-  }
-  function decodeQueryValue(value) {
-    try {
-      return decodeURIComponent(value.replace(/\+/g, " "));
-    } catch (error) {
-      return value;
-    }
-  }
-  function appendQueryParameter(url, key, value) {
-    const fragmentIndex = url.indexOf("#");
-    const fragment = fragmentIndex === -1 ? "" : url.substring(fragmentIndex);
-    const urlWithoutFragment = fragmentIndex === -1 ? url : url.substring(0, fragmentIndex);
-    const separator = urlWithoutFragment.includes("?") ? "&" : "?";
-    return `${urlWithoutFragment}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}${fragment}`;
+    return "srt";
   }
   function buildJellyfinWindowTitle(item, fallbackName) {
     if (!item) {
@@ -1458,18 +1714,16 @@
     }
   }
 
-  // src/jellyfin/auth.ts
-  function buildMediaBrowserAuthorizationHeader(options) {
-    const parts = [
-      `Client="${options.clientName}"`,
-      `Device="${options.deviceName}"`,
-      `DeviceId="${options.deviceId}"`,
-      `Version="${options.version}"`
-    ];
-    if (options.token) {
-      parts.push(`Token="${options.token}"`);
+  // src/jellyfin/redact.ts
+  function redactCredentials(text, secrets = []) {
+    let result = text;
+    for (const secret of secrets) {
+      if (secret) {
+        result = result.split(secret).join("[redacted]");
+        result = result.split(encodeURIComponent(secret)).join("[redacted]");
+      }
     }
-    return `MediaBrowser ${parts.join(", ")}`;
+    return result.replace(/([?&](?:api_?key|access_token|x-emby-token)=)[^&#\s"'<>]*/gi, "$1[redacted]").replace(/((?:Token|AccessToken|Pw|Password|X-Emby-Token|X-MediaBrowser-Token)"?\s*[:=]\s*")[^"]*"/gi, '$1[redacted]"').replace(/(\bBearer\s+)[^\s,"'<>]+/gi, "$1[redacted]");
   }
 
   // src/jellyfin/client.ts
@@ -1492,7 +1746,7 @@
     endpoint;
     snippet;
     constructor(endpoint, snippet) {
-      super(`Expected JSON response for ${endpoint} but got: ${snippet}`.trim());
+      super(`Jellyfin returned invalid JSON for ${endpoint}.`);
       this.endpoint = endpoint;
       this.snippet = snippet;
       this.name = "JellyfinJsonError";
@@ -1508,25 +1762,35 @@
     }
     async requestJson(connection, options) {
       const response = await this.send(connection, options);
+      const secrets = getRequestSecrets(connection, options);
       if (response.data !== undefined && response.data !== null) {
         if (typeof response.data !== "string") {
           return response.data;
         }
-        return this.parseJson(options.endpoint, response.data);
+        return this.parseJson(options.endpoint, response.data, secrets);
       }
       const responseText = response.text ? String(response.text).trim() : "";
       if (!responseText) {
         return null;
       }
-      return this.parseJson(options.endpoint, responseText);
+      return this.parseJson(options.endpoint, responseText, secrets);
     }
     async send(connection, options) {
       const request = this.buildRequest(connection, options);
-      const response = await this.transport.send(request);
+      const secrets = getRequestSecrets(connection, options);
+      const response = await this.sendSafely(request, secrets);
       if (response.status < 200 || response.status >= 300) {
-        throw new JellyfinHttpError(response.status, options.endpoint, response.statusText, response.text ? String(response.text) : "");
+        throw new JellyfinHttpError(response.status, redactCredentials(options.endpoint, secrets), redactCredentials(response.statusText, secrets), redactCredentials(response.text ? String(response.text) : "", secrets));
       }
       return response;
+    }
+    async sendSafely(request, secrets) {
+      try {
+        return await this.transport.send(request);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(redactCredentials(message, secrets));
+      }
     }
     buildRequest(connection, options) {
       const serverUrl = normalizeServerUrl(connection.serverUrl);
@@ -1555,13 +1819,18 @@
         ...options.body !== undefined ? { body: options.body } : {}
       };
     }
-    parseJson(endpoint, responseText) {
+    parseJson(endpoint, responseText, secrets) {
       try {
         return JSON.parse(responseText);
       } catch (error) {
-        throw new JellyfinJsonError(endpoint, responseText.slice(0, 200));
+        throw new JellyfinJsonError(redactCredentials(endpoint, secrets), redactCredentials(responseText, secrets).slice(0, 200));
       }
     }
+  }
+  function getRequestSecrets(connection, options) {
+    const body = options.body;
+    const password = typeof body === "object" && body !== null && "Pw" in body ? body.Pw : undefined;
+    return typeof password === "string" ? [connection.accessToken, password] : [connection.accessToken];
   }
   function buildQueryString2(query) {
     if (!query) {
@@ -1601,7 +1870,7 @@
       return new Error(`HTTP ${error.status} ${error.statusText}${detail}`.trim());
     }
     if (error instanceof JellyfinJsonError) {
-      return new Error(`Expected JSON response but got: ${error.snippet}`.trim());
+      return new Error(error.message);
     }
     return error;
   }
@@ -1741,6 +2010,7 @@
         isLibraryHost: options.isLibraryHost
       }
     });
+    registerPlaybackLoadHook(controller);
     iina.event.on("mpv.file-loaded", () => controller.onFileLoaded());
     iina.event.on("mpv.end-file", () => controller.onEndFile());
     iina.event.on("mpv.pause.changed", () => controller.onPauseChanged());
@@ -1749,10 +2019,106 @@
     iina.event.on("iina.window-will-close", () => controller.onWindowClose());
     return controller;
   }
+  function registerPlaybackLoadHook(controller) {
+    iina.mpv.addHook("on_load", 50, async (next) => {
+      const path = iina.mpv.getString("path") || "";
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      try {
+        controller.onStartFile(path);
+      } finally {
+        next?.();
+      }
+    });
+  }
 
   // src/sidebar/launch.ts
   function shouldOpenJellyfinLibrary(state) {
     return !state.windowReady && (state.windowClosed || !state.windowLoaded && !state.mediaPath);
+  }
+
+  // src/jellyfin/credentials.ts
+  var CREDENTIAL_SERVICE = "jellyfin-session";
+  var CREDENTIAL_ACCOUNT = "default";
+  function matchesSession(left, right) {
+    return normalizeServerUrl(left.serverUrl) === normalizeServerUrl(right.serverUrl) && left.accessToken === right.accessToken && left.userId === right.userId;
+  }
+  function parseStoredSession(value) {
+    if (typeof value !== "object" || value === null) {
+      return null;
+    }
+    const record = value;
+    const required = ["serverUrl", "accessToken", "userId"];
+    if (!required.every((key) => typeof record[key] === "string" && record[key])) {
+      return null;
+    }
+    if (typeof record.serverName !== "string" || typeof record.username !== "string") {
+      return null;
+    }
+    return {
+      serverUrl: record.serverUrl,
+      serverName: record.serverName,
+      accessToken: record.accessToken,
+      userId: record.userId,
+      username: record.username
+    };
+  }
+
+  // src/adapters/iina/credentials.ts
+  function handleCredentialRequest(request, keychain) {
+    try {
+      const session = performCredentialOperation(request, keychain);
+      return { requestId: request.requestId, ok: true, session };
+    } catch {
+      return {
+        requestId: request.requestId,
+        ok: false,
+        error: "Unable to access saved Jellyfin credentials."
+      };
+    }
+  }
+  function performCredentialOperation(request, keychain) {
+    switch (request.operation) {
+      case "load":
+        return loadSession(keychain);
+      case "save": {
+        const session = parseStoredSession(request.session);
+        if (!session)
+          throw new Error("Invalid session");
+        writeSession(keychain, JSON.stringify(session));
+        return null;
+      }
+      case "clear":
+        clearSession(keychain, request.session);
+        return null;
+    }
+  }
+  function loadSession(keychain) {
+    const value = keychain.keychainRead(CREDENTIAL_SERVICE, CREDENTIAL_ACCOUNT);
+    if (value === false || value === "")
+      return null;
+    const session = parseStoredSession(JSON.parse(value));
+    if (!session)
+      throw new Error("Invalid stored session");
+    return session;
+  }
+  function clearSession(keychain, expected) {
+    const value = keychain.keychainRead(CREDENTIAL_SERVICE, CREDENTIAL_ACCOUNT);
+    if (value === false)
+      throw new Error("Keychain read failed");
+    if (value === "")
+      return;
+    const current = parseStoredSession(JSON.parse(value));
+    const session = parseStoredSession(expected);
+    if (!current || !session)
+      throw new Error("Invalid stored session");
+    if (!matchesSession(current, session))
+      return;
+    writeSession(keychain, "");
+  }
+  function writeSession(keychain, value) {
+    if (!keychain.keychainWrite(CREDENTIAL_SERVICE, CREDENTIAL_ACCOUNT, value)) {
+      throw new Error("Keychain write failed");
+    }
   }
 
   // src/adapters/iina/runtime.ts
@@ -1787,7 +2153,7 @@
     syncBackdropEligibility();
   }
   function showHttpsAlert() {
-    utils.ask("Jellyfin requires an https:// server URL. HTTP is not supported.");
+    utils.ask("This plugin requires an https:// server URL. HTTP is not supported.");
   }
   function getPreferEpisodeImagesInNextUp() {
     const value = preferences.get(PREFER_EPISODE_IMAGES_IN_NEXT_UP_PREF_KEY);
@@ -1890,6 +2256,9 @@
     backdropPreviewsEnabled = getBackdropPreviewsEnabled();
     loadMediaOverlay();
     sidebar.loadFile("ui/sidebar.html");
+    sidebar.onMessage(MESSAGE_NAMES.CredentialRequest, (request) => {
+      sidebar.postMessage(MESSAGE_NAMES.CredentialResponse, handleCredentialRequest(request, utils));
+    });
     sidebar.onMessage(MESSAGE_NAMES.PlayItem, (data) => {
       logDebug("Jellyfin: Received playItem");
       playbackController.play(data);
@@ -1923,6 +2292,7 @@
       postSidebarPreferences();
     });
     sidebar.onMessage(MESSAGE_NAMES.AuthCleared, () => {
+      playbackController.onAuthCleared();
       clearBackdropContext();
       clearAuthState();
     });

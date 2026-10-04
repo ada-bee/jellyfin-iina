@@ -3,6 +3,8 @@
   var MESSAGE_NAMES = {
     AuthUpdated: "authUpdated",
     AuthCleared: "authCleared",
+    CredentialRequest: "credentialRequest",
+    CredentialResponse: "credentialResponse",
     PlayItem: "playItem",
     QueueItem: "queueItem",
     BackdropContext: "backdropContext",

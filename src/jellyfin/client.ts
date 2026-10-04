@@ -1,5 +1,6 @@
 import { buildMediaBrowserAuthorizationHeader } from "./auth";
 import { isHttpsUrl, normalizeServerUrl } from "./url";
+import { redactCredentials } from "./redact";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
@@ -61,7 +62,7 @@ export class JellyfinJsonError extends Error {
         readonly endpoint: string,
         readonly snippet: string
     ) {
-        super(`Expected JSON response for ${endpoint} but got: ${snippet}`.trim());
+        super(`Jellyfin returned invalid JSON for ${endpoint}.`);
         this.name = "JellyfinJsonError";
     }
 }
@@ -77,19 +78,20 @@ export class JellyfinClient {
         options: JellyfinRequestOptions
     ): Promise<T | null> {
         const response = await this.send(connection, options);
+        const secrets = getRequestSecrets(connection, options);
 
         if (response.data !== undefined && response.data !== null) {
             if (typeof response.data !== "string") {
                 return response.data as T;
             }
-            return this.parseJson<T>(options.endpoint, response.data);
+            return this.parseJson<T>(options.endpoint, response.data, secrets);
         }
 
         const responseText = response.text ? String(response.text).trim() : "";
         if (!responseText) {
             return null;
         }
-        return this.parseJson<T>(options.endpoint, responseText);
+        return this.parseJson<T>(options.endpoint, responseText, secrets);
     }
 
     private async send(
@@ -97,16 +99,26 @@ export class JellyfinClient {
         options: JellyfinRequestOptions
     ): Promise<HttpResponse> {
         const request = this.buildRequest(connection, options);
-        const response = await this.transport.send(request);
+        const secrets = getRequestSecrets(connection, options);
+        const response = await this.sendSafely(request, secrets);
         if (response.status < 200 || response.status >= 300) {
             throw new JellyfinHttpError(
                 response.status,
-                options.endpoint,
-                response.statusText,
-                response.text ? String(response.text) : ""
+                redactCredentials(options.endpoint, secrets),
+                redactCredentials(response.statusText, secrets),
+                redactCredentials(response.text ? String(response.text) : "", secrets)
             );
         }
         return response;
+    }
+
+    private async sendSafely(request: HttpRequest, secrets: string[]): Promise<HttpResponse> {
+        try {
+            return await this.transport.send(request);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(redactCredentials(message, secrets));
+        }
     }
 
     private buildRequest(
@@ -144,13 +156,24 @@ export class JellyfinClient {
         };
     }
 
-    private parseJson<T>(endpoint: string, responseText: string): T {
+    private parseJson<T>(endpoint: string, responseText: string, secrets: string[]): T {
         try {
             return JSON.parse(responseText) as T;
         } catch (error) {
-            throw new JellyfinJsonError(endpoint, responseText.slice(0, 200));
+            throw new JellyfinJsonError(
+                redactCredentials(endpoint, secrets),
+                redactCredentials(responseText, secrets).slice(0, 200)
+            );
         }
     }
+}
+
+function getRequestSecrets(connection: JellyfinConnection, options: JellyfinRequestOptions): string[] {
+    const body = options.body;
+    const password = typeof body === "object" && body !== null && "Pw" in body
+        ? body.Pw
+        : undefined;
+    return typeof password === "string" ? [connection.accessToken, password] : [connection.accessToken];
 }
 
 function buildQueryString(query?: Record<string, QueryValue>): string {

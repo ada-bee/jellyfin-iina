@@ -2,7 +2,7 @@ import { normalizeServerUrl } from "./url";
 
 export interface JellyfinImageUrlOptions {
     serverUrl: string;
-    accessToken: string;
+    accessToken?: string;
     itemId: string;
     imageType?: string;
     imageIndex?: number;
@@ -26,9 +26,6 @@ export function buildJellyfinImageUrl(options: JellyfinImageUrlOptions): string 
     ];
     if (options.imageTag) {
         query.push(`tag=${encodeURIComponent(options.imageTag)}`);
-    }
-    if (options.accessToken) {
-        query.push(`api_key=${encodeURIComponent(options.accessToken)}`);
     }
     return `${endpoint}?${query.join("&")}`;
 }
