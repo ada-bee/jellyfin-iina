@@ -15,6 +15,15 @@ export const IINA_DEVICE_PROFILE = {
         { Format: "srt", Method: "External" },
         { Format: "ass", Method: "External" },
         { Format: "ssa", Method: "External" },
-        { Format: "vtt", Method: "External" }
+        { Format: "vtt", Method: "External" },
+        { Format: "srt", Method: "Embed" },
+        { Format: "subrip", Method: "Embed" },
+        { Format: "ass", Method: "Embed" },
+        { Format: "ssa", Method: "Embed" },
+        { Format: "webvtt", Method: "Embed" },
+        { Format: "mov_text", Method: "Embed" },
+        { Format: "pgssub", Method: "Embed" },
+        { Format: "dvdsub", Method: "Embed" },
+        { Format: "dvbsub", Method: "Embed" }
     ]
 } satisfies JellyfinDeviceProfile;
